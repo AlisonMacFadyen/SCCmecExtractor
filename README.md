@@ -155,7 +155,7 @@ The tools provide informative warning messages to help diagnose issues:
 If you use SCC*mec*Extractor in your research, please cite this repository:
 
 ```
-MacFadyen, A.C. SCC*mec*Extractor: A toolkit for extracting SCC*mec* sequences from *Staphylococcus* genomes. 
+MacFadyen, A.C. SCCmecExtractor: A toolkit for extracting SCCmec sequences from Staphylococcus genomes. 
 GitHub repository: https://github.com/AlisonMacFadyen/SCCmecExtractor
 ```
 
