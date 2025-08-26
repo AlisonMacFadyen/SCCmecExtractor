@@ -116,7 +116,7 @@ The script uses regex patterns with degeneracy to account for sequence variation
 
 ### Key Features
 - **Intelligent Filtering**: *attR* and *attR2* sites are only considered if they fall within *rlmH* genes
-- **Distance Optimization**: Selects the closest *attR*-*attL* pair to minimize extraction of non-SCC*mec* sequences
+- **Distance Optimisation**: Selects the closest *attR*-*attL* pair to minimise extraction of non-SCC*mec* sequences
 - **Strand Awareness**: Automatically detects and handles SCC*mec* elements on reverse strands
 - **Quality Control**: Validates presence of required genes and *att* sites before extraction
 
