@@ -1,0 +1,3 @@
+Input_File	Pattern	Contig	Start	End	Matching_Sequence
+test_genome	caTTR	contig_1	2584168	2584190	AAACCGCATCATTTATGATATGC
+test_genome	cattL	contig_1	2493654	2493676	GCTTATCGGTTAATGATGCGGTT
