@@ -1,0 +1,7 @@
+# macOS
+.DS_Store
+
+# Python cache and temporary files
+__pycache__/
+*.egg
+*.egg-info/
