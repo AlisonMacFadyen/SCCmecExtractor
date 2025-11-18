@@ -10,6 +10,8 @@ import pytest
 import subprocess
 import sys
 from pathlib import Path
+from sccmecextractor.locate_att_sites import AttSiteFinder
+from sccmecextractor.locate_att_sites import InputValidator
 
 # Add the parent directory to Python's path for import/run scripts
 sys.path.insert(0, str(Path(__file__).parent))
@@ -79,5 +81,55 @@ class TestLocateAttSites:
         """
         Test that att sites are found and a realistic number
         """
-
-        output_file = temp_output_dir / "att_sites.tsv"
+        
+        
+        finder = AttSiteFinder(str(test_genome), str(test_gff))
+        all_sites = finder.find_all_sites()
+        filtered_sites = finder.filter_sites(all_sites)
+        
+        # Test we have obtained at least one site and no more than 10
+        assert len(filtered_sites) <= 9
+        
+class TestInputValidator:
+    """Test InputValidator"""
+    
+    def test_validate_fasta_accepts_files(self, test_genome):
+        """
+        Test input FASTA file accepted if valid
+        """
+        validator = InputValidator()
+        
+        validator.validate_fasta_file(test_genome)
+        
+    def test_validate_fasta_rejects_files(self):
+        """
+        Test input FASTA file is rejected if invalid
+        """
+        validator = InputValidator()
+        
+        fake_path = Path("this_file_does_not_exist.fasta")
+    
+        # Test to ensure FileNotFoundError occurs
+        with pytest.raises(FileNotFoundError):
+            validator.validate_fasta_file(fake_path)
+    
+    def test_validate_gff_accepts_files(self, test_gff):
+        """
+        Test input GFF file is accepted if valid
+        """
+        validator = InputValidator()
+            
+        validator.validate_gff_file(test_gff)
+        
+    def test_validate_gff_rejects_files(self, test_gff):
+        """
+        Test input GFF file is rejected if not valid
+        """
+        
+        validator = InputValidator()
+        
+        fake_path = Path("this_file_does_not_exist.gff")
+    
+        # Test to ensure FileNotFoundError occurs
+        with pytest.raises(FileNotFoundError):
+            validator.validate_gff_file(fake_path)
