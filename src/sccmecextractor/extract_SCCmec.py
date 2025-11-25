@@ -1,9 +1,55 @@
-from Bio import SeqIO
-from collections import defaultdict
+#!/usr/bin/env python
+
 import argparse
 import os
 import sys
+
 from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+from Bio import SeqIO
+from collections import defaultdict
+
+class InputValidator:
+    """Check input files are valid"""
+    
+    def validate_fasta_file(self, input_fasta):
+        """Validate that FASTA file exists and is readable."""
+        fasta = Path(input_fasta)
+            
+        if not fasta.exists():
+            raise FileNotFoundError(f"FASTA file not found: {input_fasta}")
+    
+        if not fasta.is_file():
+            raise ValueError(f"Path to FASTA exists but is not a file: {input_fasta}")
+            
+        if fasta.stat().st_size == 0:
+            raise ValueError(f"GFF file is empty: {input_fasta}")
+        
+    def validate_gff_file(self, input_gff):
+        """Validate the GFF file exists and is readable"""
+        gff = Path(input_gff)
+        
+        if not gff.exists():
+            raise FileNotFoundError(f"GFF file not found: {input_gff}")
+        
+        if not gff.is_file():
+            raise ValueError(f"Path to GFF file exists but is not a file: {input_gff}")
+            
+        if gff.stat().st_size == 0:
+            raise ValueError(f"GFF file is empty: {input_gff}")
+        
+    def validate_tsv_file(self, input_tsv):
+        """Validate the input TSV file that contains the att site locations"""
+        tsv = Path(input_tsv)
+
+        if not tsv.exists():
+            raise FileNotFoundError(f"TSV file containing att sites not found: {input_tsv}")
+        
+        if not tsv.is_file():
+            raise ValueError(f"Path exists for TSV but not a file: {input_tsv}")
+        
+        if tsv.stat().st_size == 0:
+            raise ValueError(f"TSV file is empty: {input_tsv}")
 
 class AttSite:
     """Represents a single att site with its properties."""
@@ -277,6 +323,17 @@ def main():
     parser.add_argument("-s", "--sccmec", required=True, help="Output directory for SCCmec sequences")
     args = parser.parse_args()
     
+    # Validate inputs
+    validator = InputValidator()
+    
+    validator.validate_fasta_file(args.fna)
+    
+    if args.gff:
+        validator.validate_gff_file(args.gff)
+
+    if args.att:
+        validator.validate_tsv_file(args.att)
+
     # Create extractor and process
     extractor = SCCmecExtractor(args.fna, args.gff, args.att)
     success = extractor.extract_sccmec(args.sccmec)
