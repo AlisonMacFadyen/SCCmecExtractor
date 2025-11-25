@@ -25,6 +25,11 @@ def test_gff(test_data_dir):
     return test_data_dir / "test_genome.gff3"
 
 @pytest.fixture
+def test_tsv(test_data_dir):
+    """Return path to test TSV file"""
+    return test_data_dir / "expected_att_sites.tsv"
+
+@pytest.fixture
 def expected_att_sites(test_data_dir):
     """Return path to expected att sites file"""
     return test_data_dir / "expected_att_sites.tsv"
