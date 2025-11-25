@@ -29,6 +29,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "pandas>=2.3.0"
 ]
 
 [project.scripts]
