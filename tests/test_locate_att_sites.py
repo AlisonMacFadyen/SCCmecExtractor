@@ -9,6 +9,7 @@ This file contains tests that check if locate_att_sites.py works correctly
 import pytest
 import subprocess
 import sys
+import pandas as pd
 from pathlib import Path
 from sccmecextractor.locate_att_sites import AttSiteFinder
 from sccmecextractor.locate_att_sites import InputValidator
@@ -33,7 +34,7 @@ class TestLocateAttSites:
         result = subprocess.run(
             [
                 "python",
-                "./src/locate_att_sites.py",
+                "./src/sccmecextractor/locate_att_sites.py",
                 "-f", str(test_genome),
                 "-g", str(test_gff),
                 "-o", str(output_file)
@@ -56,15 +57,19 @@ class TestLocateAttSites:
         output_file = temp_output_dir / "att_sites.tsv"
 
         # Run the script
-        subprocess.run(
+        result = subprocess.run(
             ["python", 
-             "./src/locate_att_sites.py",
+             "./src/sccmecextractor/locate_att_sites.py",
              "-f", str(test_genome),
              "-g", str(test_gff),
              "-o", output_file
              ],
              capture_output=True
         )
+
+        # Check the file was created
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        assert output_file.exists(), "Output file not created"
 
         # Read the resulting TSV file
         with open(output_file) as out_file:
@@ -82,14 +87,41 @@ class TestLocateAttSites:
         Test that att sites are found and a realistic number
         """
         
-        
         finder = AttSiteFinder(str(test_genome), str(test_gff))
         all_sites = finder.find_all_sites()
         filtered_sites = finder.filter_sites(all_sites)
         
         # Test we have obtained at least one site and no more than 10
-        assert len(filtered_sites) <= 9
-        
+        assert 1 <= len(filtered_sites) <= 9, \
+            f"Expected 1-9 sites, found {len(filtered_sites)}"
+
+    def test_output_content_matches_expected(self, test_genome, test_gff, temp_output_dir):
+        """
+        Test that output contains expected att sites
+        """
+        output_file = temp_output_dir / "att_sites.tsv"
+        expected_file = Path("tests/test_data/expected_att_sites.tsv")
+    
+        # Run the script
+        subprocess.run(
+            ["python", "./src/sccmecextractor/locate_att_sites.py",
+             "-f", str(test_genome),
+             "-g", str(test_gff),
+             "-o", str(output_file)],
+            capture_output=True
+        )
+    
+        # Load both files
+        actual_df = pd.read_csv(output_file, sep='\t')
+        expected_df = pd.read_csv(expected_file, sep='\t')
+    
+        # Compare DataFrames
+        pd.testing.assert_frame_equal(
+            actual_df.sort_values(by=['Contig', 'Start']).reset_index(drop=True),
+            expected_df.sort_values(by=['Contig', 'Start']).reset_index(drop=True),
+            check_like=True  # Ignore column/row order
+        )
+
 class TestInputValidator:
     """Test InputValidator"""
     
@@ -121,7 +153,7 @@ class TestInputValidator:
             
         validator.validate_gff_file(test_gff)
         
-    def test_validate_gff_rejects_files(self, test_gff):
+    def test_validate_gff_rejects_files(self):
         """
         Test input GFF file is rejected if not valid
         """
