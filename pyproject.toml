@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "sccmecextractor"
-version = "0.1.0"
-description = "SCCmecExtractor identifies and extracts SCCmec sequences from WGS"
+version = "1.0.0"
+description = "A Python toolkit for extracting SCCmec sequences from Staphylococcus whole genome sequences"
 readme = "README.md"
 requires-python = ">=3.8"
 license = "MIT"
@@ -12,16 +16,19 @@ authors = [
 maintainers = [
     {name = "Alison MacFadyen", email = "alison.macfadyen86@gmail.com"}
 ]
-keywords = ["microbiology", "sccmec", "amr"]
+keywords = [""bioinformatics", "genomics", "staphylococcus", "sccmec", "bacterial-genomics"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12"
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
+requires-python = ">=3.8"
 dependencies = [
     "biopython>=1.85"
 ]
@@ -29,9 +36,45 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
-    "pandas>=2.3.0"
+    "pandas>=2.3.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy",
 ]
 
 [project.scripts]
-sccmecextractor = "sccmecextractor.cli:main"
+sccmec-locate-att = "sccmecextractor.locate_att_sites:main"
+sccmec-extract = "sccmecextractor.extract_SCCmec:main"
 
+[project.urls]
+Homepage = "https://github.com/AlisonMacFadyen/SCCmecExtractor"
+Repository = "https://github.com/AlisonMacFadyen/SCCmecExtractor"
+Issues = "https://github.com/AlisonMacFadyen/SCCmecExtractor/issues"
+Documentation = "https://github.com/AlisonMacFadyen/SCCmecExtractor#readme"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["sccmecextractor*"]
+namespaces = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=sccmecextractor --cov-report=html --cov-report=term"
+
+[tool.black]
+line-length = 100
+target-version = ['py38']
+include = '\.pyi?$'
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
