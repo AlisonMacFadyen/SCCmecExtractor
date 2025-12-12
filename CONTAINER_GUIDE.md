@@ -73,7 +73,7 @@ docker run --rm -v ~/bakta_db/:/data/bakta_db \
   bakta_db download --output /data/bakta_db --type light
 ```
 
-For the full database (recommended for production):
+For the full database:
 
 ```bash
 docker run --rm -v ~/bakta_db/:/data/bakta_db \
@@ -90,7 +90,7 @@ docker run --rm \
   -v $PWD:/work \
   -v ~/bakta_db:/data/bakta_db \
   sccmecextractor:latest \
-  bakta --db /data/bakta_db genome.fna --output bakta_output --prefix sample
+  bakta --db /data/bakta_db/db-light genome.fna.gz --output bakta_output --prefix sample
 ```
 
 #### Locating Attachment Sites
@@ -114,12 +114,12 @@ docker run --rm \
 #### Complete Pipeline
 
 ```bash
-# 1. Annotate genome with Bakta
+# 1. Annotate genome with Bakta using the "light" database
 docker run --rm \
   -v $PWD:/work \
   -v ~/bakta_db:/data/bakta_db \
   sccmecextractor:latest \
-  bakta --db /data/bakta_db genome.fna --output bakta_output --prefix genome
+  bakta --db /data/bakta_db/db-light genome.fna.gz --output bakta_output --prefix genome
 
 # 2. Locate att sites
 docker run --rm \

@@ -37,7 +37,7 @@ SCCmecExtractor consists of two main scripts that work together to identify and 
 
 ## Installation
 
-### Using Conda/Mamba (Recommended)
+### Using Conda/Mamba
 
 ```bash
 # Create a new environment
@@ -79,11 +79,11 @@ pip install -e .
 
 ### Using Docker
 
-Docker provides a containerized environment with all dependencies pre-installed, including Bakta.
+Docker provides a containerised environment with all dependencies pre-installed, including Bakta.
 
 ```bash
 # Pull the pre-built image (when available)
-docker pull yourusername/sccmecextractor:latest
+docker pull alisonmacfadyen/sccmecextractor:latest
 
 # Or build from source
 git clone https://github.com/AlisonMacFadyen/SCCmecExtractor.git
@@ -94,12 +94,22 @@ docker build -t sccmecextractor:latest -f containers/Dockerfile .
 **Quick Start with Docker:**
 
 ```bash
+# Download Bakta Database (light in this example)
+
+# Create a directory for the Bakta database
+mkdir -p ~/bakta_db
+
+# Download using Docker
+docker run --rm -v ~/bakta_db/:/data/bakta_db \
+  sccmecextractor:latest \
+  bakta_db download --output /data/bakta_db --type light
+
 # Run the complete pipeline
 docker run --rm \
   -v $PWD:/work \
   -v ~/bakta_db:/data/bakta_db \
   sccmecextractor:latest \
-  bash -c "bakta --db /data/bakta_db genome.fna --output bakta_out && \
+  bash -c "bakta --db /data/bakta_db genome.fna.gz --output bakta_out && \
            sccmec-locate-att -f genome.fna -g bakta_out/genome.gff3 -o att_sites.tsv && \
            sccmec-extract -f genome.fna -g bakta_out/genome.gff3 -a att_sites.tsv -s output"
 ```
@@ -114,13 +124,19 @@ Singularity/Apptainer is ideal for HPC environments where Docker is not availabl
 # Build from definition file
 singularity build sccmecextractor.sif containers/sccmecextractor.def
 
-# Or pull from Docker Hub (when available)
-singularity pull docker://yourusername/sccmecextractor:latest
+# Or pull from Docker Hub
+singularity pull docker://alisonmacfadyen/sccmecextractor:latest
 ```
 
 **Quick Start with Singularity:**
 
 ```bash
+# Download Bakta Database (light in this example)
+singularity exec \
+  --bind $PWD:/work \
+  sccmecextractor.sif \
+  bakta_db download --output ~/bakta_db --type light
+
 # Run the complete pipeline
 singularity exec \
   --bind $PWD:/work \
@@ -143,7 +159,7 @@ See [CONTAINER_GUIDE.md](CONTAINER_GUIDE.md) for detailed Singularity usage inst
 
 ### Input Files
 
-* **Genome sequence**: `.fasta` or `.fna` file containing the assembled genome
+* **Genome sequence**: `.fasta` or `.fna` file containing the assembled genome.  Note a compressed version is required to run Bakta.
 * **Gene annotations**: `.gff3` file with gene annotations (we recommend using [bakta](https://github.com/oschwengers/bakta) for annotation)
 
 ### Bakta Database
@@ -154,7 +170,7 @@ If using Bakta for annotation, you'll need to download the Bakta database:
 # Light database (faster, smaller)
 bakta_db download --output bakta_db --type light
 
-# Full database (recommended for production)
+# Full database
 bakta_db download --output bakta_db
 ```
 
