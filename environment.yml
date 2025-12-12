@@ -1,0 +1,10 @@
+name: sccmecextractor
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python>=3.8
+  - pip
+  - biopython>=1.79
+  - bakta>=1.9.0

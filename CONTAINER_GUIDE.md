@@ -53,10 +53,10 @@ git clone https://github.com/AlisonMacFadyen/SCCmecExtractor.git
 cd SCCmecExtractor
 
 # Build the Docker image
-docker build -t sccmecextractor:latest .
+docker build -t sccmecextractor:latest -f containers/Dockerfile .
 
 # Or build with a specific tag
-docker build -t sccmecextractor:1.0.0 .
+docker build -t sccmecextractor:1.0.0 -f containers/Dockerfile .
 ```
 
 ### Downloading the Bakta Database
@@ -68,29 +68,20 @@ Before using Bakta within the container, you need to download the database:
 mkdir -p ~/bakta_db
 
 # Download using Docker
-docker run --rm -v ~/bakta_db:/data/bakta_db \
-  oschwengers/bakta:latest \
+docker run --rm -v ~/bakta_db/:/data/bakta_db \
+  sccmecextractor:latest \
   bakta_db download --output /data/bakta_db --type light
 ```
 
 For the full database (recommended for production):
 
 ```bash
-docker run --rm -v ~/bakta_db:/data/bakta_db \
-  oschwengers/bakta:latest \
+docker run --rm -v ~/bakta_db/:/data/bakta_db \
+  sccmecextractor:latest \
   bakta_db download --output /data/bakta_db
 ```
 
 ### Running the Docker Container
-
-#### Interactive Mode
-
-```bash
-docker run -it --rm \
-  -v $PWD:/work \
-  -v ~/bakta_db:/data/bakta_db \
-  sccmecextractor:latest bash
-```
 
 #### Running Bakta Annotation
 
@@ -143,21 +134,6 @@ docker run --rm \
   sccmec-extract -f genome.fna -g bakta_output/genome.gff3 -a att_sites.tsv -s sccmec_sequences
 ```
 
-### Publishing to Docker Hub
-
-```bash
-# Tag the image
-docker tag sccmecextractor:latest yourusername/sccmecextractor:latest
-docker tag sccmecextractor:latest yourusername/sccmecextractor:1.0.0
-
-# Login to Docker Hub
-docker login
-
-# Push the image
-docker push yourusername/sccmecextractor:latest
-docker push yourusername/sccmecextractor:1.0.0
-```
-
 ## Singularity Setup
 
 ### Prerequisites
@@ -189,18 +165,15 @@ singularity build sccmecextractor.sif docker-daemon://sccmecextractor:latest
 
 ### Running the Singularity Container
 
-#### Interactive Shell
-
-```bash
-singularity shell \
-  --bind $PWD:/work \
-  --bind ~/bakta_db:/data/bakta_db \
-  sccmecextractor.sif
-```
-
 #### Running Commands with exec
 
 ```bash
+# Download Bakta Database
+singularity exec \
+  --bind ~/bakta_db:/data/bakta_db \
+  sccmecextractor.sif \
+  bakta_db download --output /data/bakta_db --type light
+
 # Run Bakta annotation
 singularity exec \
   --bind $PWD:/work \
@@ -219,131 +192,6 @@ singularity exec \
   --bind $PWD:/work \
   sccmecextractor.sif \
   sccmec-extract -f genome.fna -g genome.gff3 -a att_sites.tsv -s sccmec_output
-```
-
-#### Complete Pipeline with Singularity
-
-```bash
-# Set up bind paths
-export WORK_DIR=$PWD
-export BAKTA_DB=~/bakta_db
-
-# 1. Annotate with Bakta
-singularity exec \
-  --bind $WORK_DIR:/work \
-  --bind $BAKTA_DB:/data/bakta_db \
-  sccmecextractor.sif \
-  bakta --db /data/bakta_db genome.fna --output bakta_output --prefix genome
-
-# 2. Locate att sites
-singularity exec \
-  --bind $WORK_DIR:/work \
-  sccmecextractor.sif \
-  sccmec-locate-att -f genome.fna -g bakta_output/genome.gff3 -o att_sites.tsv
-
-# 3. Extract SCCmec
-singularity exec \
-  --bind $WORK_DIR:/work \
-  sccmecextractor.sif \
-  sccmec-extract -f genome.fna -g bakta_output/genome.gff3 -a att_sites.tsv -s sccmec_sequences
-```
-
-### HPC/Cluster Usage
-
-For running on HPC systems with job schedulers:
-
-#### SLURM Example
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=sccmec_extraction
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=8G
-#SBATCH --time=02:00:00
-
-module load singularity
-
-# Define paths
-WORK_DIR=/path/to/working/directory
-BAKTA_DB=/path/to/bakta_db
-GENOME=genome.fna
-
-cd $WORK_DIR
-
-# Run Bakta
-singularity exec \
-  --bind $WORK_DIR:/work \
-  --bind $BAKTA_DB:/data/bakta_db \
-  sccmecextractor.sif \
-  bakta --db /data/bakta_db --threads $SLURM_CPUS_PER_TASK \
-  $GENOME --output bakta_output --prefix $GENOME
-
-# Run SCCmecExtractor
-singularity exec \
-  --bind $WORK_DIR:/work \
-  sccmecextractor.sif \
-  sccmec-locate-att -f $GENOME -g bakta_output/${GENOME}.gff3 -o att_sites.tsv
-
-singularity exec \
-  --bind $WORK_DIR:/work \
-  sccmecextractor.sif \
-  sccmec-extract -f $GENOME -g bakta_output/${GENOME}.gff3 \
-  -a att_sites.tsv -s sccmec_output
-```
-
-## Usage Examples
-
-### Processing Multiple Genomes
-
-#### Docker
-
-```bash
-# Create a script to process multiple genomes
-for genome in genomes/*.fna; do
-  basename=$(basename $genome .fna)
-  
-  docker run --rm \
-    -v $PWD:/work \
-    -v ~/bakta_db:/data/bakta_db \
-    sccmecextractor:latest \
-    bakta --db /data/bakta_db $genome --output bakta_${basename} --prefix ${basename}
-  
-  docker run --rm \
-    -v $PWD:/work \
-    sccmecextractor:latest \
-    sccmec-locate-att -f $genome -g bakta_${basename}/${basename}.gff3 \
-    -o att_sites_${basename}.tsv
-  
-  docker run --rm \
-    -v $PWD:/work \
-    sccmecextractor:latest \
-    sccmec-extract -f $genome -g bakta_${basename}/${basename}.gff3 \
-    -a att_sites_${basename}.tsv -s sccmec_${basename}
-done
-```
-
-#### Singularity
-
-```bash
-for genome in genomes/*.fna; do
-  basename=$(basename $genome .fna)
-  
-  singularity exec \
-    --bind $PWD:/work \
-    --bind ~/bakta_db:/data/bakta_db \
-    sccmecextractor.sif \
-    bakta --db /data/bakta_db $genome --output bakta_${basename} --prefix ${basename}
-  
-  singularity exec --bind $PWD:/work sccmecextractor.sif \
-    sccmec-locate-att -f $genome -g bakta_${basename}/${basename}.gff3 \
-    -o att_sites_${basename}.tsv
-  
-  singularity exec --bind $PWD:/work sccmecextractor.sif \
-    sccmec-extract -f $genome -g bakta_${basename}/${basename}.gff3 \
-    -a att_sites_${basename}.tsv -s sccmec_${basename}
-done
 ```
 
 ## Troubleshooting
