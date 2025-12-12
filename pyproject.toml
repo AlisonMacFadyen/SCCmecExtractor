@@ -16,19 +16,18 @@ authors = [
 maintainers = [
     {name = "Alison MacFadyen", email = "alison.macfadyen86@gmail.com"}
 ]
-keywords = [""bioinformatics", "genomics", "staphylococcus", "sccmec", "bacterial-genomics"]
+keywords = ["bioinformatics", "genomics", "staphylococcus", "sccmec", "bacterial-genomics"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Bio-Informatics"
 ]
-requires-python = ">=3.8"
+
 dependencies = [
     "biopython>=1.85"
 ]
@@ -40,8 +39,9 @@ dev = [
     "pytest-cov",
     "black",
     "flake8",
-    "mypy",
+    "mypy"
 ]
+
 
 [project.scripts]
 sccmec-locate-att = "sccmecextractor.locate_att_sites:main"
