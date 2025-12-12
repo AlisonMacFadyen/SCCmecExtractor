@@ -1,0 +1,85 @@
+Bootstrap: docker
+From: mambaorg/micromamba:1.5.10
+
+%labels
+    Author Alison MacFadyen
+    Email alison.macfadyen86@gmail.com
+    Version 1.0.0
+    Description SCCmecExtractor: Pipeline for extracting SCCmec sequences from Staphylococcus genomes
+
+%help
+    SCCmecExtractor - A toolkit for extracting SCCmec sequences from Staphylococcus genomes
+    
+    This container includes:
+    - SCCmecExtractor (locate_att_sites.py and extract_SCCmec.py)
+    - Bakta for genome annotation
+    - Biopython and dependencies
+    
+    Usage:
+        # Locate attachment sites
+        singularity exec sccmecextractor.sif sccmec-locate-att -f genome.fna -g genome.gff3 -o att_sites.tsv
+        
+        # Extract SCCmec sequences
+        singularity exec sccmecextractor.sif sccmec-extract -f genome.fna -g genome.gff3 -a att_sites.tsv -s output/
+        
+        # Run Bakta annotation (requires database)
+        singularity exec --bind /path/to/bakta_db:/data/bakta_db sccmecextractor.sif \
+            bakta --db /data/bakta_db genome.fna --output bakta_output
+    
+    Mount points:
+        /data/bakta_db - Bakta database location (bind your database here)
+        /work          - Working directory for input/output files
+
+%files
+    # Copy application files into the container
+    src /app/src
+    pyproject.toml /app/pyproject.toml
+    README.md /app/README.md
+    VERSION /app/VERSION
+    requirements.txt /app/requirements.txt
+
+%post
+    # Install system dependencies
+    apt-get update && apt-get install -y \
+        wget \
+        curl \
+        git \
+        procps \
+        && rm -rf /var/lib/apt/lists/*
+    
+    # Create conda environment and install packages
+    eval "$(micromamba shell hook --shell bash)"
+    micromamba create -y -n sccmecextractor -c conda-forge -c bioconda \
+        python=3.11 \
+        pip \
+        biopython \
+        bakta
+    
+    micromamba activate sccmecextractor
+    
+    # Install SCCmecExtractor
+    cd /app
+    pip install --no-cache-dir -e .
+    
+    # Create mount points
+    mkdir -p /data/bakta_db /work
+    
+    # Clean up
+    micromamba clean --all --yes
+
+%environment
+    export BAKTA_DB=/data/bakta_db
+    export PATH=/opt/conda/envs/sccmecextractor/bin:$PATH
+    export LC_ALL=C
+
+%runscript
+    echo "SCCmecExtractor Container"
+    echo "========================="
+    echo ""
+    echo "Available commands:"
+    echo "  sccmec-locate-att    - Locate attachment sites"
+    echo "  sccmec-extract       - Extract SCCmec sequences"
+    echo "  bakta                - Run Bakta annotation"
+    echo ""
+    echo "Use 'singularity exec' to run specific commands"
+    echo "Example: singularity exec sccmecextractor.sif sccmec-locate-att --help"

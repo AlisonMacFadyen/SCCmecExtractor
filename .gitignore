@@ -5,3 +5,14 @@
 __pycache__/
 *.egg
 *.egg-info/
+dist/
+build/
+
+# Container images
+*.sif
+*.img
+
+# Docker
+.dockerignore
+
+
