@@ -82,7 +82,7 @@ pip install -e .
 Docker provides a containerised environment with all dependencies pre-installed, including Bakta.
 
 ```bash
-# Pull the pre-built image (when available)
+# Pull the pre-built image
 docker pull alisonmacfadyen/sccmecextractor:latest
 
 # Or build from source
