@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-import itertools
 import re
 import argparse
 
@@ -97,31 +96,6 @@ class GeneAnnotationParser:
         return False
 
 
-class PatternGenerator:
-    """Generates all possible pattern combinations from regex patterns with brackets."""
-    
-    @staticmethod
-    def generate_all_patterns(basic_patterns: Dict[str, str]) -> Dict[str, List[str]]:
-        """Generate all pattern combinations from basic patterns with brackets."""
-        result = {}
-        
-        for name, pattern in basic_patterns.items():
-            matches = re.findall(r'\[([A-Z]+)\]', pattern)
-            
-            if matches:
-                combinations = list(itertools.product(*matches))
-                search_patterns = [
-                    re.sub(r'\[[A-Z]+\]', '{}', pattern).format(*combo)
-                    for combo in combinations
-                ]
-            else:
-                search_patterns = [pattern]
-            
-            result[name] = search_patterns
-        
-        return result
-
-
 class AttSiteFinder:
     """Main class that coordinates att site searching and analysis."""
     
@@ -130,17 +104,17 @@ class AttSiteFinder:
         self.sequences = self._parse_fasta()
         self.gene_parser = GeneAnnotationParser(gff3_file) if gff3_file else None
         
-        # Basic patterns for att sites
-        self.basic_patterns = {
-            'attR': 'GC[AG]TATCA[TC]AA[GA]TGATGCGGTTT',
-            'caTTR': 'AAACCGCATCA[CT]TT[GA]TGATA[CT]GC',
-            'attR2': 'GC[GT]TA[TC]CA[TC]AAATAAAACTAAAA',
-            'cattR2': 'TTTTAGTTTTATTT[GA]TG[AG]TA[AC]GC',
-            'attL': 'AACC[TG]CATCA[TC][TC][AT][AC]C[TC]GATAAG[CT]',
-            'cattL': '[AG]CTTATC[GA]G[GT][AT][GA][GA]TGATG[CA]GGTT'
+        # Patterns for att sites
+        self.patterns = {
+            'attR': re.compile('GC[AG]TATCA[TC]AA[GA]TGATGCGGTTT'),
+            'cattR': re.compile('AAACCGCATCA[CT]TT[GA]TGATA[CT]GC'),
+            'attR2': re.compile('GC[GT]TA[TC]CA[TC]AAATAAAACTAAAA'),
+            'cattR2': re.compile('TTTTAGTTTTATTT[GA]TG[AG]TA[AC]GC'),
+            'attL': re.compile('AACC[TG]CATCA[TC][TC][AT][AC]C[TC]GATAAG[CT]'),
+            'cattL': re.compile('[AG]CTTATC[GA]G[GT][AT][GA][GA]TGATG[CA]GGTT'),
+            'attL2': re.compile('[TA][TA]TT[TA][AG][GC][TCA]AA[TA]AT[CA]ACT[GA][TGA][TC]A[AG]GG'),
+            'cattL2': re.compile('CC[CT]T[GA][ACT][TC]AGT[TG]AT[TA]TT[TGA][CG][CT][TA]AA[TA][TA]'),
         }
-        
-        self.patterns = PatternGenerator.generate_all_patterns(self.basic_patterns)
     
     def _parse_fasta(self) -> Dict[str, str]:
         """Parse FASTA file to get sequences by contig."""
@@ -152,10 +126,6 @@ class AttSiteFinder:
         
         return sequences
     
-    def _search_pattern_in_sequence(self, sequence: str, pattern: str) -> List[Tuple[int, int, str]]:
-        """Search for a pattern in a sequence and return matches."""
-        return [(m.start(), m.end(), m.group()) for m in re.finditer(pattern, sequence)]
-    
     def find_all_sites(self) -> List[AttSite]:
         """Search for all att sites in all sequences."""
         sites = []
@@ -163,31 +133,30 @@ class AttSiteFinder:
         for contig, sequence in self.sequences.items():
             print(f"Processing contig: {contig}")
             
-            for pattern_name, pattern_list in self.patterns.items():
-                for pattern in pattern_list:
-                    matches = self._search_pattern_in_sequence(sequence, pattern)
+            for pattern_name, compiled_pattern in self.patterns.items():
+                matches = list(compiled_pattern.finditer(sequence))
+                
+                if matches:
+                    print(f"  Pattern {pattern_name}: {len(matches)} matches")
+                
+                for match in matches:
+                    site = AttSite(
+                        pattern_name=pattern_name,
+                        contig=contig,
+                        start=match.start() + 1,  # Convert to 1-based
+                        end=match.end(),
+                        match_seq=match.group()
+                    )
                     
-                    if matches:
-                        print(f"  Pattern {pattern_name}: {len(matches)} matches")
+                    # Check if site is within rlmH gene
+                    if self.gene_parser:
+                        site.within_rlmH = self.gene_parser.is_within_rlmH(site)
                     
-                    for start, end, match_seq in matches:
-                        site = AttSite(
-                            pattern_name=pattern_name,
-                            contig=contig,
-                            start=start + 1,  # Convert to 1-based
-                            end=end,
-                            match_seq=match_seq
-                        )
-                        
-                        # Check if site is within rlmH gene
-                        if self.gene_parser:
-                            site.within_rlmH = self.gene_parser.is_within_rlmH(site)
-                        
-                        sites.append(site)
-                        print(f"    Found at position {site.start}-{site.end}")
-                        
-                        if site.within_rlmH:
-                            print(f"      Match falls within rlmH gene")
+                    sites.append(site)
+                    print(f"    Found at position {site.start}-{site.end}")
+                    
+                    if site.within_rlmH:
+                        print(f"      Match falls within rlmH gene")
         
         return sites
     
@@ -210,9 +179,9 @@ class AttSiteFinder:
     
     def write_results(self, sites: List[AttSite], output_file: str):
         """Write results to TSV file."""
-        input_file_name = self.fasta_file.split('/')[-1].split('.')[0]
+        input_file_name = Path(self.fasta_file).stem
         
-        with open(output_file, 'w') as f:
+        with open(output_file, 'a') as f:
             f.write("Input_File\tPattern\tContig\tStart\tEnd\tMatching_Sequence\n")
             
             for site in sites:
