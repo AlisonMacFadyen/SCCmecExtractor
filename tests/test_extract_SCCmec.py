@@ -16,6 +16,42 @@ from sccmecextractor.extract_SCCmec import InputValidator
 # Add the parent directory to Python's path for import/run scripts
 sys.path.insert(0, str(Path(__file__).parent))
 
+class TestSCCmecExtractor:
+    """
+    A class to group related tests together
+    """
+
+    def test_script_runs(self, test_genome, test_gff, test_tsv, temp_output_dir):
+        """
+        Test that extract_SCCmec.py runs successfully without errors using valid input
+        """
+
+        # Define output location
+        output_dir = temp_output_dir
+
+        # Specify the output file
+        output_file = output_dir / ""
+
+        # Run the script
+        result = subprocess.run(
+            [
+                "python",
+                "./src/sccmecextractor/extract_SCCmec.py",
+                "-f", str(test_genome),
+                "-g", str(test_gff),
+                "-a", str(test_tsv),
+                "-o", str(output_dir)
+            ],
+            capture_output=True,
+            text=True
+        )
+
+        # Check that the script didn't crash
+        assert result.returncode == 0, f"Script failed with error:\n{result.stderr}"
+
+        # Check if output file was created
+        assert output_file.exists(), "Output file was not created"
+
 class TestInputValidator:
     """Test InputValidator"""
     
