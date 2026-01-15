@@ -3,11 +3,26 @@
 import argparse
 import os
 import sys
+import logging
 
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 from Bio import SeqIO
 from collections import defaultdict
+
+def setup_logging(log_file: Optional[str] = None, verbose: bool = False):
+    level = logging.DEBUG if verbose else logging.INFO
+
+    handlers = [logging.StreamHandler(sys.stderr)]
+
+    if log_file:
+        handlers.append(logging.FileHandler(log_file))
+
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=handlers,
+    )
 
 class InputValidator:
     """Check input files are valid"""
@@ -322,6 +337,15 @@ def main():
     parser.add_argument("-a", "--att", required=True, help=".tsv file containing att site location information")
     parser.add_argument("-s", "--sccmec", required=True, help="Output directory for SCCmec sequences")
     args = parser.parse_args()
+    
+    # Setup Logging
+    # Change the path for saving the log
+    if not os.path.exists("log"):
+        os.makedirs("log")
+    setup_logging(
+        log_file=os.path.join("log", "sccmec_extractor.log"),
+        verbose=True
+    )
     
     # Validate inputs
     validator = InputValidator()
