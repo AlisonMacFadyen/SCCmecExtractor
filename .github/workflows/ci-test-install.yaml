@@ -5,7 +5,10 @@ on:
     paths-ignore:
       - "README.md"
   pull_request:
-    types: [opened, edited, synchronized]
+    types: 
+      - opened
+      - edited
+      - synchronized
     paths-ignore:
       - "README.md"
 
@@ -28,9 +31,9 @@ jobs:
           cache-environment: true
           cache-downloads: true
           post-cleanup: all
-      - name: Install PyTest
+      - name: Install test dependencies
         run: |
-          micromamba install -y -n sccmecextractor pytest pytest-dependency
+          micromamba install -y -n sccmecextractor pytest pytest-cov pytest-dependency
       - name: Mamba info
         run: |
           micromamba run -n sccmecextractor micromamba info
