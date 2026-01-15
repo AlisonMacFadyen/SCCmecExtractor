@@ -5,7 +5,7 @@ A Python toolkit for extracting SCC*mec* (Staphylococcal Cassette Chromosome *me
 **Note the tool is quite stringent and requires the *att* sites to be located on the same contig as each other and as the gene *rlmH* in order to extract the DNA sequence of the SCC*mec***
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 ## Overview
 
@@ -15,6 +15,7 @@ SCCmecExtractor consists of two main scripts that work together to identify and 
     - Canonical *attR* sites: *attR* and the complement, *cattR*
     - Divergent CcrC associated *attR2* and the complement, *cattR2*
     - Canonical *attL* and the complement, *cattL*
+    - Divergent CcrC associated *attL2* and the complement, *cattL2*
 2. **`extract_SCCmec.py`** - Extracts the SCC*mec* sequence based on identified *att* sites and gene annotations
 
 ## Table of Contents
@@ -153,7 +154,7 @@ See [CONTAINER_GUIDE.md](CONTAINER_GUIDE.md) for detailed Singularity usage inst
 
 ### Dependencies
 
-* Python 3.8+
+* Python 3.9+
 * Biopython (`pip install biopython`)
 * Bakta (for genome annotation) - automatically included in containers
 
@@ -285,6 +286,7 @@ The tool searches for specific DNA motifs that represent attachment sites:
 - **cattR**: Complementary right attachment sites
 - **cattL**: Complementary left attachment sites
 - **attR2/cattR2**: Alternative right attachment site patterns
+- **attL2/cattL2**: Alternative left attachment site patterns
 
 The script uses regex patterns with degeneracy to account for sequence variation in these sites.
 
