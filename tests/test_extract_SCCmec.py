@@ -36,11 +36,12 @@ class TestSCCmecExtractor:
         result = subprocess.run(
             [
                 "python",
-                "./src/sccmecextractor/extract_SCCmec.py",
+                "-m",
+                "sccmecextractor.extract_SCCmec",
                 "-f", str(test_genome),
                 "-g", str(test_gff),
                 "-a", str(test_tsv),
-                "-o", str(output_dir)
+                "-s", str(output_dir)
             ],
             capture_output=True,
             text=True

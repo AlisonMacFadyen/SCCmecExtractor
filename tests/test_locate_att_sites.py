@@ -34,7 +34,8 @@ class TestLocateAttSites:
         result = subprocess.run(
             [
                 "python",
-                "./src/sccmecextractor/locate_att_sites.py",
+                "-m", 
+                "sccmecextractor.locate_att_sites",
                 "-f", str(test_genome),
                 "-g", str(test_gff),
                 "-o", str(output_file)
@@ -59,7 +60,8 @@ class TestLocateAttSites:
         # Run the script
         result = subprocess.run(
             ["python", 
-             "./src/sccmecextractor/locate_att_sites.py",
+             "-m", 
+             "sccmecextractor.locate_att_sites",
              "-f", str(test_genome),
              "-g", str(test_gff),
              "-o", output_file
@@ -104,7 +106,7 @@ class TestLocateAttSites:
     
         # Run the script
         subprocess.run(
-            ["python", "./src/sccmecextractor/locate_att_sites.py",
+            ["python", "-m", "sccmecextractor.locate_att_sites",
              "-f", str(test_genome),
              "-g", str(test_gff),
              "-o", str(output_file)],
