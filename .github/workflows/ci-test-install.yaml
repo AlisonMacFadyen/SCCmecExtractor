@@ -1,49 +1,44 @@
 name: CI - Test Install
+
 on:
   push:
     paths-ignore:
       - "README.md"
   pull_request:
-    types:
-      - opened
-      - edited
-      - synchronized
+    types: [opened, edited, synchronized]
     paths-ignore:
       - "README.md"
 
 jobs:
   test-install:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-  steps:
-  - uses: actions/checkout@v4
-  - uses: mamba-org/setup-micromamba@v2
-    with:
-      micromamba-version: 'latest'
-      environment-name: 'sccmecextractor'
-      environment-file: 'environment.yml'
-      create-args: python=3.10
-      condarc: |
-        channels:
-          - conda-forge
-          - bioconda
-      init-shell: bash
-      cache-environment: true
-      cache-downloads: true
-      post-cleanup: 'all'
-  - name: Install PyTest
-    run: micromamba install pytest pytest-dependency
-    shell: bash -l {0}
-  - name: Mamba info
-    run: |
-      micromamba info
-      micromamba list
-      printenv | sort
-    shell: bash -l {0}
-  - name: Install with micromamba
-    run: |
-      micromamba run -n base pip install --no-cache-dir -e .
-  - name: Run PyTest
-    run: pytest
-    shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          micromamba-version: 'latest'
+          environment-name: sccmecextractor
+          environment-file: environment.yml
+          create-args: python=3.10
+          condarc: |
+            channels:
+              - conda-forge
+              - bioconda
+          init-shell: bash
+          cache-environment: true
+          cache-downloads: true
+          post-cleanup: all
+      - name: Install PyTest
+        run: |
+          micromamba install -y -n sccmecextractor pytest pytest-dependency
+      - name: Mamba info
+        run: |
+          micromamba run -n sccmecextractor micromamba info
+          micromamba run -n sccmecextractor micromamba list
+          printenv | sort
+      - name: Install package
+        run: |
+          micromamba run -n sccmecextractor pip install --no-cache-dir -e .
+      - name: Run PyTest
+        run: |
+          micromamba run -n sccmecextractor pytest
