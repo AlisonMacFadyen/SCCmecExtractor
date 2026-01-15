@@ -3,7 +3,7 @@ on:
   push:
     paths-ignore:
       - "README.md"
-  pull-requests:
+  pull_requests:
     types:
       - opened
       - edited
