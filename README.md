@@ -6,7 +6,8 @@ A Python toolkit for extracting SCC*mec* (Staphylococcal Cassette Chromosome *me
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![PyPI](https://img.shields.io/pypi/v/:sccmecextractor)]
+[![PyPI](https://img.shields.io/pypi/v/:sccmecextractor)](https://pypi.org/project/sccmecextractor/1.1.0/)
+[![Docker Image Version](https://img.shields.io/docker/alisonmacfadyen/sccmecextractor?sort=semver&label=docker))](https://hub.docker.com/repository/docker/alisonmacfadyen/sccmecextractor/general)
 
 ## Overview
 
