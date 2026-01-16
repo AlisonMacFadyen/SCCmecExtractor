@@ -6,6 +6,7 @@ A Python toolkit for extracting SCC*mec* (Staphylococcal Cassette Chromosome *me
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![PyPI](https://img.shields.io/pypi/v/:sccmecextractor)]
 
 ## Overview
 
@@ -49,9 +50,7 @@ conda activate sccmecextractor
 conda install -c conda-forge -c bioconda biopython bakta
 
 # Install SCCmecExtractor
-git clone https://github.com/AlisonMacFadyen/SCCmecExtractor.git
-cd SCCmecExtractor
-pip install -e .
+pip install sccmecextractor
 
 # Test that scripts are available
 sccmec-locate-att --help
@@ -66,16 +65,15 @@ export PATH="$CONDA_PREFIX/bin:$PATH"
 
 ### Using pip
 
+Note, installation with `pip` does not provide Bakta.
+
 ```bash
-# Clone the repository
-git clone https://github.com/AlisonMacFadyen/SCCmecExtractor.git
-cd SCCmecExtractor
+# Install SCCmecExtractor
+pip install sccmecextractor
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Install in editable mode
-pip install -e .
+# Test that scripts are available
+sccmec-locate-att --help
+sccmec-extract --help
 ```
 
 ### Using Docker
