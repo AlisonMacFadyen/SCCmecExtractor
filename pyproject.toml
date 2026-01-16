@@ -4,12 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sccmecextractor"
-version = "1.0.0"
+version = "1.1.0"
 description = "A Python toolkit for extracting SCCmec sequences from Staphylococcus whole genome sequences"
 readme = "README.md"
 requires-python = ">=3.8"
-license = "MIT"
-license-files = ["LINCEN[CS]E*"]
+license = { file = "LICENSE" }
 authors = [
     {name = "Alison MacFadyen", email = "alison.macfadyen86@gmail.com"}
 ]
@@ -20,7 +19,6 @@ keywords = ["bioinformatics", "genomics", "staphylococcus", "sccmec", "bacterial
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
