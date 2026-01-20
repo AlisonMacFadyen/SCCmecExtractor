@@ -4,27 +4,37 @@ import argparse
 import os
 import sys
 import logging
+import logging.config
+import yaml
 
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 from Bio import SeqIO
 from collections import defaultdict
 
-logger = logging.getLogger()
 
-def setup_logging(log_file: Optional[str] = None, verbose: bool = False):
-    level = logging.DEBUG if verbose else logging.INFO
+def setup_logging(log_dir: str = "logs"):
+    """Configure logging with the specified log directory."""
+    # Create log directory first
+    if not os.path.exist(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+    
+    # Load config
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-    handlers = [logging.StreamHandler(sys.stderr)]
-
-    if log_file:
-        handlers.append(logging.FileHandler(log_file))
-
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=handlers,
-    )
+    config_path = os.path.join(SCRIPT_DIR, "logger_config.yaml")
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+    
+    # Update handler filenames with the log directory
+    for handler in config["handlers"].values():
+        if "filename" in handler:
+            handler["filename"] = os.path.join(log_dir, os.path.basename(handler["filename"]))
+    
+    # Apply configuration
+    logging.config.dictConfig(config)
+    
+    return logging.getLogger(__name__)
 
 class InputValidator:
     """Check input files are valid"""
@@ -40,7 +50,7 @@ class InputValidator:
             raise ValueError(f"Path to FASTA exists but is not a file: {input_fasta}")
             
         if fasta.stat().st_size == 0:
-            raise ValueError(f"GFF file is empty: {input_fasta}")
+            raise ValueError(f"FASTA file is empty: {input_fasta}")
         
     def validate_gff_file(self, input_gff):
         """Validate the GFF file exists and is readable"""
@@ -112,7 +122,9 @@ class GeneAnnotations:
                     rlmH_info[contig] = start_position
         
         if not rlmH_info:
-            print(f"Warning: No rlmH genes found in {self.gff3_file}", file=sys.stderr)
+            fail_logger.warning(
+                f"SCCmec extraction failed | GFF3 file = {self.gff3_file} | reason = NO RLMH GENE FOUND"
+            )
         
         return rlmH_info
     
@@ -155,7 +167,9 @@ class AttSiteCollection:
                     sites.append(AttSite(pattern, contig, start_pos, end_pos))
         
         if not found_entries:
-            print(f"Warning: No entries found for {self.target_file} in {self.tsv_file}", file=sys.stderr)
+            fail_logger.warning(
+                f"SCCmec Extraction failed | genome = {self.target_file} | reason = NO ATT SITES FOR GENOME IN TSV"
+            )
         
         return sites
     
@@ -281,7 +295,7 @@ class SCCmecExtractor:
         
         # Check if we have valid att sites
         if not self.att_sites.has_valid_sites():
-            logger.error(
+            fail_logger.warning(
                 f"SCCmec extraction failed | genome = {self.target_file} | reason = NO_ATT_SITES"
             )
 
@@ -290,7 +304,7 @@ class SCCmecExtractor:
         # Find the best att site pair
         best_pair = self.att_sites.find_closest_pair()
         if not best_pair:
-            logger.error(
+            fail_logger.warning(
                 f"SCCmec extraction failed | genome = {self.target_file} | reason = NO_VALID_ATT_PAIR"
             )
 
@@ -301,7 +315,7 @@ class SCCmecExtractor:
         
         # Check for rlmH gene
         if not self.genes.has_rlmH(contig):
-            logger.error(
+            fail_logger.warning(
                 f"SCCmec extraction failed | genome = {self.target_file} | contig = {contig} | reason = NO_RLMH"
             )
             return False
@@ -337,11 +351,16 @@ class SCCmecExtractor:
             with open(output_file, "w") as fasta_output:
                 SeqIO.write([record], fasta_output, "fasta")
             
-            print(f"Successfully processed {self.target_file}: Extracted sequence of length {len(extracted_seq)} bp")
+            pass_logger.info(
+                f"SUCCESS\t{self.target_file}\t{contig}\t{len(extracted_seq)}"
+            )
+        
             return True
             
         except Exception as e:
-            print(f"Error processing {self.target_file}: {str(e)}", file=sys.stderr)
+            logger.exception(
+                f"Unhandled error during SCCmec extraction | genome = {self.target_file}"
+            )
             return False
 
 
@@ -351,27 +370,26 @@ def main():
     parser.add_argument("-g", "--gff", required=True, help=".gff3 file containing gene annotation information")
     parser.add_argument("-a", "--att", required=True, help=".tsv file containing att site location information")
     parser.add_argument("-s", "--sccmec", required=True, help="Output directory for SCCmec sequences")
+    parser.add_argument("--log-dir", default="logs", help="Directory to store log files and exctraction outcomes")
     args = parser.parse_args()
     
     # Setup Logging
-    if not os.path.exists("logs"):
-        os.makedirs("logs")
-    
-    setup_logging(
-        log_file=os.path.join("logs", "sccmec_extractor.log"),
-        verbose=True
-    )
+    logger = setup_logging(args.log_dir)
+    pass_logger = logging.getLogger("sccmec.pass")
+    fail_logger = logging.getLogger("sccmec.fail")
     
     # Validate inputs
     validator = InputValidator()
     
-    validator.validate_fasta_file(args.fna)
-    
-    if args.gff:
+    try:
+        validator.validate_fasta_file(args.fna)
         validator.validate_gff_file(args.gff)
-
-    if args.att:
         validator.validate_tsv_file(args.att)
+    except Exception as e:
+        logger.error(
+            f"Input validation failed | error = {e}"
+        )
+        sys.exit(1)
 
     # Create extractor and process
     extractor = SCCmecExtractor(args.fna, args.gff, args.att)
