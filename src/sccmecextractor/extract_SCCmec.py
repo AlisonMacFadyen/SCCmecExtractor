@@ -10,6 +10,8 @@ from pathlib import Path
 from Bio import SeqIO
 from collections import defaultdict
 
+logger = logging.getLogger()
+
 def setup_logging(log_file: Optional[str] = None, verbose: bool = False):
     level = logging.DEBUG if verbose else logging.INFO
 
@@ -272,18 +274,26 @@ class SCCmecExtractor:
     
     def extract_sccmec(self, output_dir: str) -> bool:
         """Extract SCCmec sequence and save to file."""
+        logger.info(f"Processing genome {self.target_file}")
+
         # Create output directory
         os.makedirs(output_dir, exist_ok=True)
         
         # Check if we have valid att sites
         if not self.att_sites.has_valid_sites():
-            print(f"Warning: Missing required att sites for {self.target_file}", file=sys.stderr)
+            logger.error(
+                f"SCCmec extraction failed | genome = {self.target_file} | reason = NO_ATT_SITES"
+            )
+
             return False
         
         # Find the best att site pair
         best_pair = self.att_sites.find_closest_pair()
         if not best_pair:
-            print(f"Warning: No valid attR-attL pair found for {self.target_file}", file=sys.stderr)
+            logger.error(
+                f"SCCmec extraction failed | genome = {self.target_file} | reason = NO_VALID_ATT_PAIR"
+            )
+
             return False
         
         att_right, att_left = best_pair
@@ -291,7 +301,9 @@ class SCCmecExtractor:
         
         # Check for rlmH gene
         if not self.genes.has_rlmH(contig):
-            print(f"Warning: No rlmH gene found for {self.target_file} on {contig}", file=sys.stderr)
+            logger.error(
+                f"SCCmec extraction failed | genome = {self.target_file} | contig = {contig} | reason = NO_RLMH"
+            )
             return False
         
         rlmH_start = self.genes.get_rlmH_start(contig)
@@ -299,7 +311,10 @@ class SCCmecExtractor:
         
         # Skip if file already exists
         if os.path.exists(output_file):
-            print(f"Skipping {self.target_file}: Output file already exists", file=sys.stderr)
+            logger.info(
+                f"SCCmec extraction skipped | genome = {self.target_file} | reason = OUTPUT_EXISTS"
+                )
+            
             return False
         
         try:
@@ -339,11 +354,11 @@ def main():
     args = parser.parse_args()
     
     # Setup Logging
-    # Change the path for saving the log
-    if not os.path.exists("log"):
-        os.makedirs("log")
+    if not os.path.exists("logs"):
+        os.makedirs("logs")
+    
     setup_logging(
-        log_file=os.path.join("log", "sccmec_extractor.log"),
+        log_file=os.path.join("logs", "sccmec_extractor.log"),
         verbose=True
     )
     
