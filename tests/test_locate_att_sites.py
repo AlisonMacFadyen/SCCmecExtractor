@@ -9,9 +9,10 @@ This file contains tests that check if locate_att_sites.py works correctly
 import pytest
 import subprocess
 import sys
+import tempfile
 import pandas as pd
 from pathlib import Path
-from sccmecextractor.locate_att_sites import AttSiteFinder
+from sccmecextractor.locate_att_sites import AttSiteFinder, GeneAnnotationParser
 from sccmecextractor.locate_att_sites import InputValidator
 
 # Add the parent directory to Python's path for import/run scripts
@@ -159,11 +160,70 @@ class TestInputValidator:
         """
         Test input GFF file is rejected if not valid
         """
-        
+
         validator = InputValidator()
-        
+
         fake_path = Path("this_file_does_not_exist.gff")
-    
+
         # Test to ensure FileNotFoundError occurs
         with pytest.raises(FileNotFoundError):
             validator.validate_gff_file(fake_path)
+
+
+class TestRlmHDetection:
+    """Tests for rlmH gene detection across different annotation formats."""
+
+    def _write_gff3(self, lines):
+        """Helper to write a temporary GFF3 file and return its path."""
+        f = tempfile.NamedTemporaryFile(mode='w', suffix='.gff3', delete=False)
+        for line in lines:
+            f.write(line + '\n')
+        f.close()
+        return f.name
+
+    def test_detects_rlmH_by_gene_attribute(self):
+        """Old-style Bakta: gene=rlmH on the gene feature line."""
+        gff = self._write_gff3([
+            'contig_1\tProdigal\tgene\t100\t600\t.\t-\t.\tID=g1;locus_tag=L1;gene=rlmH',
+        ])
+        parser = GeneAnnotationParser(gff)
+        assert 'contig_1' in parser.rlmH_genes
+        assert (100, 600) in parser.rlmH_genes['contig_1']
+
+    def test_detects_rlmH_by_product_name_new_bakta(self):
+        """New-style Bakta: no gene name, product contains the full methyltransferase description."""
+        gff = self._write_gff3([
+            'contig_1\tProdigal\tCDS\t100\t600\t.\t-\t0\t'
+            'ID=c1;Name=Ribosomal RNA large subunit methyltransferase H;'
+            'product=Ribosomal RNA large subunit methyltransferase H',
+        ])
+        parser = GeneAnnotationParser(gff)
+        assert 'contig_1' in parser.rlmH_genes
+        assert (100, 600) in parser.rlmH_genes['contig_1']
+
+    def test_detects_rlmH_by_product_with_rlmH_suffix(self):
+        """Old-style CDS line: product contains 'methyltransferase RlmH'."""
+        gff = self._write_gff3([
+            'contig_1\tProdigal\tCDS\t100\t600\t.\t-\t0\t'
+            'ID=c1;Name=23S rRNA (pseudouridine(1915)-N(3))-methyltransferase RlmH;'
+            'product=23S rRNA (pseudouridine(1915)-N(3))-methyltransferase RlmH',
+        ])
+        parser = GeneAnnotationParser(gff)
+        assert 'contig_1' in parser.rlmH_genes
+
+    def test_no_false_positive_on_other_methyltransferases(self):
+        """Ensure other rRNA methyltransferases (rlmB, rsmH, etc.) are not matched."""
+        gff = self._write_gff3([
+            'contig_1\tProdigal\tgene\t100\t600\t.\t+\t.\tID=g1;gene=rlmB',
+            'contig_1\tProdigal\tgene\t700\t1200\t.\t+\t.\tID=g2;gene=rsmH',
+            'contig_1\tProdigal\tCDS\t1300\t1800\t.\t+\t0\t'
+            'ID=c1;product=23S rRNA (guanosine(2251)-2-O)-methyltransferase RlmB',
+        ])
+        parser = GeneAnnotationParser(gff)
+        assert len(parser.rlmH_genes) == 0
+
+    def test_empty_gff_returns_no_genes(self):
+        """An empty GFF3 file should yield no rlmH genes."""
+        gff = self._write_gff3(['##gff-version 3'])
+        parser = GeneAnnotationParser(gff)
+        assert len(parser.rlmH_genes) == 0
