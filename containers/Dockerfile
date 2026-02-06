@@ -41,4 +41,4 @@ CMD ["/bin/bash"]
 # Labels
 LABEL maintainer="Alison MacFadyen <alison.macfadyen86@gmail.com>"
 LABEL description="SCCmecExtractor: Pipeline for extracting SCCmec sequences from Staphylococcus genomes"
-LABEL version="1.0.0"
+LABEL version="1.2.1"

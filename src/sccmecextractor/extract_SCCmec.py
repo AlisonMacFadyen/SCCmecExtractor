@@ -3,6 +3,7 @@
 import argparse
 import os
 import sys
+import logging
 
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
@@ -74,29 +75,61 @@ class AttSite:
 
 class GeneAnnotations:
     """Handles parsing and storing gene annotation information."""
-    
+
+    RLMH_PRODUCT = 'ribosomal rna large subunit methyltransferase h'
+
     def __init__(self, gff3_file: str):
         self.gff3_file = gff3_file
         self.rlmH_positions = self._parse_rlmH_genes()
-    
+
+    @staticmethod
+    def _is_rlmH_feature(attributes: dict) -> bool:
+        """Check if GFF3 feature attributes identify rlmH.
+
+        Handles both older Bakta (gene=rlmH) and newer Bakta where
+        the gene name is dropped but the product name is retained.
+        """
+        if attributes.get('gene', '').lower() == 'rlmh':
+            return True
+
+        for attr in ('Name', 'product'):
+            value = attributes.get(attr, '').lower()
+            if 'rlmh' in value or GeneAnnotations.RLMH_PRODUCT in value:
+                return True
+
+        return False
+
     def _parse_rlmH_genes(self) -> Dict[str, int]:
-        """Parse GFF3 file to extract rlmH gene start positions."""
+        """Parse GFF3 file to extract rlmH gene start positions.
+
+        Checks both gene and CDS feature types to handle annotation
+        tools that may not assign a gene name to rlmH.
+        """
         rlmH_info = {}
-        
+
         with open(self.gff3_file, 'r') as gff3:
             for line in gff3:
                 if line.startswith("#"):
                     continue
-                    
+
                 columns = line.strip().split("\t")
-                if columns[2] == "gene" and "gene=rlmH" in columns[-1]:
+                if len(columns) != 9 or columns[2] not in ('gene', 'CDS'):
+                    continue
+
+                attributes = dict(
+                    item.split('=', 1) for item in columns[8].split(';') if '=' in item
+                )
+
+                if self._is_rlmH_feature(attributes):
                     contig = columns[0]
                     start_position = int(columns[3])
-                    rlmH_info[contig] = start_position
-        
+                    # Prefer gene feature; don't overwrite with CDS
+                    if contig not in rlmH_info:
+                        rlmH_info[contig] = start_position
+
         if not rlmH_info:
             print(f"Warning: No rlmH genes found in {self.gff3_file}", file=sys.stderr)
-        
+
         return rlmH_info
     
     def get_rlmH_start(self, contig: str) -> Optional[int]:
@@ -322,7 +355,7 @@ def main():
     parser.add_argument("-a", "--att", required=True, help=".tsv file containing att site location information")
     parser.add_argument("-s", "--sccmec", required=True, help="Output directory for SCCmec sequences")
     args = parser.parse_args()
-    
+
     # Validate inputs
     validator = InputValidator()
     
