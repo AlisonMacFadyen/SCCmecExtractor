@@ -7,4 +7,4 @@ dependencies:
   - python>=3.10
   - pip
   - biopython>=1.79
-  - bakta>=1.9.0
+  - bakta=1.11.4

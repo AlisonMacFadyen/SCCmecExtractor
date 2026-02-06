@@ -59,29 +59,55 @@ class AttSite:
 
 class GeneAnnotationParser:
     """Handles parsing and querying of gene annotations from GFF3 files."""
-    
+
+    RLMH_PRODUCT = 'ribosomal rna large subunit methyltransferase h'
+
     def __init__(self, gff3_file: str):
         self.gff3_file = gff3_file
         self.rlmH_genes = self._parse_gff3()
-    
+
+    def _is_rlmH_feature(self, attributes: dict) -> bool:
+        """Check if GFF3 feature attributes identify rlmH.
+
+        Handles both older Bakta (gene=rlmH) and newer Bakta where
+        the gene name is dropped but the product name is retained.
+        """
+        if attributes.get('gene', '').lower() == 'rlmh':
+            return True
+
+        for attr in ('Name', 'product'):
+            value = attributes.get(attr, '').lower()
+            if 'rlmh' in value or self.RLMH_PRODUCT in value:
+                return True
+
+        return False
+
     def _parse_gff3(self) -> Dict[str, Set[Tuple[int, int]]]:
-        """Parse GFF3 file to extract rlmH gene locations."""
+        """Parse GFF3 file to extract rlmH gene locations.
+
+        Checks both gene and CDS feature types to handle annotation
+        tools that may not assign a gene name to rlmH.
+        """
         genes = {}
-        
+
         with open(self.gff3_file, 'r') as f:
             for line in f:
                 if line.startswith('#'):
                     continue
-                    
+
                 fields = line.strip().split('\t')
-                if len(fields) == 9 and fields[2] == 'gene':
+                if len(fields) != 9 or fields[2] not in ('gene', 'CDS'):
+                    continue
+
+                attributes = dict(
+                    item.split('=', 1) for item in fields[8].split(';') if '=' in item
+                )
+
+                if self._is_rlmH_feature(attributes):
                     contig = fields[0]
                     start, end = int(fields[3]), int(fields[4])
-                    attributes = dict(item.split('=', 1) for item in fields[8].split(';'))
-                    
-                    if attributes.get('gene') == 'rlmH':
-                        genes.setdefault(contig, set()).add((start, end))
-        
+                    genes.setdefault(contig, set()).add((start, end))
+
         return genes
     
     def is_within_rlmH(self, site: AttSite, tolerance: int = 10) -> bool:
