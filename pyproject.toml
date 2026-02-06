@@ -4,12 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sccmecextractor"
-version = "1.0.0"
+version = "1.1.0"
 description = "A Python toolkit for extracting SCCmec sequences from Staphylococcus whole genome sequences"
 readme = "README.md"
-requires-python = ">=3.8"
-license = "MIT"
-license-files = ["LINCEN[CS]E*"]
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
 authors = [
     {name = "Alison MacFadyen", email = "alison.macfadyen86@gmail.com"}
 ]
@@ -18,9 +17,8 @@ maintainers = [
 ]
 keywords = ["bioinformatics", "genomics", "staphylococcus", "sccmec", "bacterial-genomics"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -70,11 +68,11 @@ addopts = "-v --cov=sccmecextractor --cov-report=html --cov-report=term"
 
 [tool.black]
 line-length = 100
-target-version = ['py38']
+target-version = ['py39']
 include = '\.pyi?$'
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
