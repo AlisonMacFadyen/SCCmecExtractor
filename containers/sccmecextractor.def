@@ -4,7 +4,7 @@ From: mambaorg/micromamba:1.5.10
 %labels
     Author Alison MacFadyen
     Email alison.macfadyen86@gmail.com
-    Version 1.2.2
+    Version 1.2.3
     Description SCCmecExtractor: Pipeline for extracting SCCmec sequences from Staphylococcus genomes
 
 %help
