@@ -53,7 +53,7 @@ From: mambaorg/micromamba:1.5.10
         python=3.11 \
         pip \
         biopython \
-        bakta=1.11.4
+        bakta=1.12.0
     
     micromamba activate sccmecextractor
     
