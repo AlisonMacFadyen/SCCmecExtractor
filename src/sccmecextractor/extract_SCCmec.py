@@ -159,6 +159,10 @@ class AttSiteCollection:
             for line in tsv:
                 columns = line.strip().split("\t")
                 input_file = columns[0]
+
+                # Skip duplicate header lines (from batch runs)
+                if input_file == "Input_File":
+                    continue
                 
                 # Only process entries for our target file
                 if input_file == self.target_file:
@@ -257,9 +261,7 @@ class SCCmecExtractor:
     
     def _get_input_filename(self, fna_path: str) -> str:
         """Extract the base filename without extension from the input path."""
-        base = os.path.basename(fna_path)
-        base_full = os.path.splitext(base)[0]
-        return base_full.split(".")[0]
+        return Path(fna_path).stem
     
     def _determine_extraction_coordinates(self, rlmH_start: int, att_right: AttSite, att_left: AttSite) -> Tuple[int, int, bool]:
         """Determine the coordinates for SCCmec extraction."""

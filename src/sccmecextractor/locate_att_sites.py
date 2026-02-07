@@ -206,10 +206,14 @@ class AttSiteFinder:
     def write_results(self, sites: List[AttSite], output_file: str):
         """Write results to TSV file."""
         input_file_name = Path(self.fasta_file).stem
-        
+
+        output_path = Path(output_file)
+        write_header = not output_path.exists() or output_path.stat().st_size == 0
+
         with open(output_file, 'a') as f:
-            f.write("Input_File\tPattern\tContig\tStart\tEnd\tMatching_Sequence\n")
-            
+            if write_header:
+                f.write("Input_File\tPattern\tContig\tStart\tEnd\tMatching_Sequence\n")
+
             for site in sites:
                 f.write(site.to_tsv_line(input_file_name) + "\n")
 

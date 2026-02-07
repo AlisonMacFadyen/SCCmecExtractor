@@ -53,6 +53,76 @@ class TestSCCmecExtractor:
         # Check if output file was created
         assert output_file.exists(), "Output file was not created"
 
+    def test_name_matches_locate_att_output(self, test_genome, test_gff, temp_output_dir):
+        """
+        extract_sccmec should find entries produced by locate_att, even when the filename contains multiple dots.
+        Regression test for name mismatch bug.
+        """
+        # Create symlinks with RefSeq-style dotted names
+        dotted_fna = temp_output_dir / "GCF_000159575.1_ASM15957v1_genomic.fna"
+        dotted_fna.symlink_to(test_genome.resolve())
+
+        dotted_gff = temp_output_dir / "GCF_000159575.1_ASM15957v1_genomic.gff3"
+        dotted_gff.symlink_to(test_gff.resolve())
+
+        att_file = temp_output_dir / "att_sites.tsv"
+        sccmec_dir = temp_output_dir / "sccmec_out"
+
+        # Step 1: locate att sites
+        locate_result = subprocess.run(
+            ["python", "-m", "sccmecextractor.locate_att_sites",
+             "-f", str(dotted_fna),
+             "-g", str(dotted_gff),
+             "-o", str(att_file)],
+            capture_output=True, text=True
+        )
+        assert locate_result.returncode == 0, f"locate_att failed: {locate_result.stderr}"
+
+        # Step 2: extract using that output
+        extract_result = subprocess.run(
+            ["python", "-m", "sccmecextractor.extract_SCCmec",
+             "-f", str(dotted_fna),
+             "-g", str(dotted_gff),
+             "-a", str(att_file),
+             "-s", str(sccmec_dir)],
+            capture_output=True, text=True
+        )
+        assert extract_result.returncode == 0, (
+            f"extract failed (likely name mismatch): {extract_result.stderr}"
+        )
+
+    def test_extract_handles_duplicate_headers(self, test_genome, test_gff, test_tsv, temp_output_dir):
+        """
+        extract_sccmec should tolerate duplicate header lines in the TSV (e.g. from concatenated batch output).
+        Regression test for duplicate header parsing crash.
+        """
+        # Create a TSV with a duplicate header in the middle
+        with open(test_tsv) as f:
+            original = f.read()
+
+        bad_tsv = temp_output_dir / "dup_header.tsv"
+        lines = original.strip().split("\n")
+        # Insert a duplicate header after the first data line
+        with open(bad_tsv, 'w') as f:
+            f.write(lines[0] + "\n")  # header
+            f.write(lines[1] + "\n")  # data line 1
+            f.write(lines[0] + "\n")  # DUPLICATE header
+            if len(lines) > 2:
+                f.write(lines[2] + "\n")  # data line 2
+
+        result = subprocess.run(
+            ["python", "-m", "sccmecextractor.extract_SCCmec",
+             "-f", str(test_genome),
+             "-g", str(test_gff),
+             "-a", str(bad_tsv),
+             "-s", str(temp_output_dir / "sccmec_out")],
+            capture_output=True, text=True
+        )
+        assert result.returncode == 0, (
+            f"extract crashed on duplicate header: {result.stderr}"
+        )
+
+
 class TestInputValidator:
     """Test InputValidator"""
     
