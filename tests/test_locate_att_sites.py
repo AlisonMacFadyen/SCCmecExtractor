@@ -125,9 +125,66 @@ class TestLocateAttSites:
             check_like=True  # Ignore column/row order
         )
 
+    def test_batch_mode_single_header(self, test_genome, test_gff, temp_output_dir):
+        """
+        Running locate_att twice on the same output should produce only one header.
+        Regression test for duplicate header bug in batch processing.
+        """
+        output_file = temp_output_dir / "att_sites.tsv"
+
+        # Run twice to simulate batch processing
+        for _ in range(2):
+            subprocess.run(
+                ["python", "-m", "sccmecextractor.locate_att_sites",
+                 "-f", str(test_genome),
+                 "-g", str(test_gff),
+                 "-o", str(output_file)],
+                capture_output=True
+            )
+
+        with open(output_file) as f:
+            lines = f.readlines()
+
+        header_count = sum(1 for line in lines if line.startswith("Input_File\t"))
+        assert header_count == 1, (
+            f"Expected 1 header line in batch output, found {header_count}"
+        )
+
+    def test_genome_name_uses_stem(self, test_genome, test_gff, temp_output_dir):
+        """
+        The Input_File column should use Path.stem (remove final extension only).
+        A symlinked file with dots in its name should preserve everything before .fna.
+        Regression test for name mismatch between locate_att and extract.
+        """
+        # Create a symlink with dots in the name (simulating RefSeq naming)
+        dotted_name = temp_output_dir / "GCF_000159575.1_ASM15957v1_genomic.fna"
+        dotted_name.symlink_to(test_genome.resolve())
+
+        dotted_gff = temp_output_dir / "GCF_000159575.1_ASM15957v1_genomic.gff3"
+        dotted_gff.symlink_to(test_gff.resolve())
+
+        output_file = temp_output_dir / "att_sites.tsv"
+
+        subprocess.run(
+            ["python", "-m", "sccmecextractor.locate_att_sites",
+             "-f", str(dotted_name),
+             "-g", str(dotted_gff),
+             "-o", str(output_file)],
+            capture_output=True
+        )
+
+        df = pd.read_csv(output_file, sep='\t')
+        expected_name = "GCF_000159575.1_ASM15957v1_genomic"
+        actual_names = df['Input_File'].unique()
+        assert len(actual_names) == 1, f"Expected 1 unique name, got {actual_names}"
+        assert actual_names[0] == expected_name, (
+            f"Expected Input_File='{expected_name}', got '{actual_names[0]}'"
+        )
+
+
 class TestInputValidator:
     """Test InputValidator"""
-    
+
     def test_validate_fasta_accepts_files(self, test_genome):
         """
         Test input FASTA file accepted if valid
