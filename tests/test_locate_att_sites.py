@@ -6,6 +6,9 @@ Tests for locate_att_sites.py
 This file contains tests that check if locate_att_sites.py works correctly
 """
 
+import shutil
+import warnings
+
 import pytest
 import subprocess
 import sys
@@ -14,6 +17,9 @@ import pandas as pd
 from pathlib import Path
 from sccmecextractor.locate_att_sites import AttSiteFinder, GeneAnnotationParser
 from sccmecextractor.locate_att_sites import InputValidator
+from sccmecextractor.locate_att_sites import RlmHBlastDetector
+
+HAS_BLAST = shutil.which("blastn") is not None
 
 # Add the parent directory to Python's path for import/run scripts
 sys.path.insert(0, str(Path(__file__).parent))
@@ -284,3 +290,79 @@ class TestRlmHDetection:
         gff = self._write_gff3(['##gff-version 3'])
         parser = GeneAnnotationParser(gff)
         assert len(parser.rlmH_genes) == 0
+
+
+@pytest.mark.skipif(not HAS_BLAST, reason="BLAST+ not installed")
+class TestBlastRlmH:
+    """Tests for BLAST-based rlmH detection."""
+
+    def test_blast_rlmh_finds_gene(self, test_genome):
+        """BLAST detects rlmH in the test genome."""
+        detector = RlmHBlastDetector(str(test_genome))
+        assert len(detector.rlmH_genes) > 0, "BLAST should find rlmH in test genome"
+
+    def test_blast_matches_gff_detection(self, test_genome, test_gff):
+        """BLAST and GFF find rlmH on the same contigs."""
+        gff_parser = GeneAnnotationParser(str(test_gff))
+        blast_detector = RlmHBlastDetector(str(test_genome))
+
+        gff_contigs = set(gff_parser.rlmH_genes.keys())
+        blast_contigs = set(blast_detector.rlmH_genes.keys())
+
+        assert gff_contigs == blast_contigs, (
+            f"GFF found rlmH on {gff_contigs}, BLAST found on {blast_contigs}"
+        )
+
+    def test_att_finder_with_blast_rlmh(self, test_genome, temp_output_dir):
+        """Full pipeline works without GFF using BLAST rlmH."""
+        finder = AttSiteFinder(str(test_genome), blast_rlmh=True)
+        all_sites = finder.find_all_sites()
+        filtered_sites = finder.filter_sites(all_sites)
+
+        assert len(filtered_sites) >= 1, "Should find att sites with BLAST rlmH"
+
+    def test_blast_rlmh_cli(self, test_genome, temp_output_dir):
+        """CLI --blast-rlmh flag works."""
+        output_file = temp_output_dir / "blast_att_sites.tsv"
+
+        result = subprocess.run(
+            [
+                "python", "-m", "sccmecextractor.locate_att_sites",
+                "-f", str(test_genome),
+                "--blast-rlmh",
+                "-o", str(output_file),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, f"Script failed with error:\n{result.stderr}"
+        assert output_file.exists(), "Output file was not created"
+
+    def test_blast_results_match_gff_results(self, test_genome, test_gff, temp_output_dir):
+        """BLAST-based and GFF-based att site detection produce same results."""
+        gff_finder = AttSiteFinder(str(test_genome), str(test_gff))
+        blast_finder = AttSiteFinder(str(test_genome), blast_rlmh=True)
+
+        gff_sites = gff_finder.filter_sites(gff_finder.find_all_sites())
+        blast_sites = blast_finder.filter_sites(blast_finder.find_all_sites())
+
+        gff_set = {(s.pattern_name, s.contig, s.start, s.end) for s in gff_sites}
+        blast_set = {(s.pattern_name, s.contig, s.start, s.end) for s in blast_sites}
+
+        assert gff_set == blast_set, (
+            f"GFF sites: {gff_set}\nBLAST sites: {blast_set}"
+        )
+
+
+class TestNoGffNoBlast:
+    """Test behaviour when no GFF and no BLAST available."""
+
+    def test_no_gff_no_blast_warns(self, test_genome):
+        """Warning emitted when no GFF and blast_rlmh=False."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            finder = AttSiteFinder(str(test_genome))
+            user_warnings = [x for x in w if issubclass(x.category, UserWarning)]
+            assert len(user_warnings) == 1
+            assert "No GFF file" in str(user_warnings[0].message)

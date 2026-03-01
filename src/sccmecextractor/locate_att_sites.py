@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 
 import re
+import os
 import argparse
+import tempfile
+import warnings
 
 from Bio import SeqIO
 from typing import List, Dict, Set, Tuple
@@ -110,36 +113,183 @@ class GeneAnnotationParser:
 
         return genes
     
-    def is_within_rlmH(self, site: AttSite, tolerance: int = 10) -> bool:
-        """Check if an AttSite falls within an rlmH gene (with tolerance)."""
+    def is_within_rlmH(self, site: AttSite, tolerance: int = 100) -> bool:
+        """Check if an AttSite falls within an rlmH gene (with tolerance).
+
+        Tolerance is applied symmetrically to both boundaries because the
+        att site sits at the 3' end of rlmH — which maps to the lower
+        genomic coordinate on the complement strand.
+        """
         if site.contig not in self.rlmH_genes:
             return False
-        
+
         for gene_start, gene_end in self.rlmH_genes[site.contig]:
-            if gene_start <= site.start <= site.end <= (gene_end + tolerance):
+            if (gene_start - tolerance) <= site.start and site.end <= (gene_end + tolerance):
                 return True
-        
+
+        return False
+
+
+class RlmHBlastDetector:
+    """Detect rlmH gene locations using BLAST instead of GFF3 annotation.
+
+    Creates a temporary BLAST database from the genome FASTA, then BLASTs
+    an rlmH reference sequence against it to find rlmH locations.
+    """
+
+    def __init__(self, fasta_file: str, rlmh_ref: str = None,
+                 genome_db_prefix: str = None):
+        from sccmecextractor.blast_utils import (
+            BlastRunner,
+            get_default_ref,
+            parse_blast_output,
+            filter_hits,
+        )
+
+        self._blast_utils = {
+            "BlastRunner": BlastRunner,
+            "get_default_ref": get_default_ref,
+            "parse_blast_output": parse_blast_output,
+            "filter_hits": filter_hits,
+        }
+        self.fasta_file = fasta_file
+        self.rlmh_ref = rlmh_ref
+        self._genome_db_prefix = genome_db_prefix
+        self.rlmH_genes = self._detect_rlmH()
+
+    def _detect_rlmH(self) -> Dict[str, Set[Tuple[int, int]]]:
+        """Run BLAST to detect rlmH gene locations in the genome."""
+        BlastRunner = self._blast_utils["BlastRunner"]
+        get_default_ref = self._blast_utils["get_default_ref"]
+        parse_blast_output = self._blast_utils["parse_blast_output"]
+        filter_hits = self._blast_utils["filter_hits"]
+
+        runner = BlastRunner()
+        genes = {}
+
+        # Reuse shared DB when provided, otherwise create a temporary one
+        owns_db = self._genome_db_prefix is None
+        if owns_db:
+            tmp_dir = tempfile.mkdtemp(prefix="sccmec_rlmh_")
+            db_prefix = os.path.join(tmp_dir, "genome_db")
+        else:
+            tmp_dir = None
+            db_prefix = self._genome_db_prefix
+
+        try:
+            if owns_db:
+                runner.create_db(self.fasta_file, db_prefix)
+
+            # Get the rlmH reference
+            if self.rlmh_ref:
+                results_file = runner.run_blastn(self.rlmh_ref, db_prefix)
+                ref_lengths = self._get_ref_lengths(self.rlmh_ref)
+            else:
+                with get_default_ref("rlmH.fasta") as ref_path:
+                    results_file = runner.run_blastn(str(ref_path), db_prefix)
+                    ref_lengths = self._get_ref_lengths(str(ref_path))
+
+            # Parse and filter results
+            hits = parse_blast_output(results_file)
+            filtered = filter_hits(
+                hits, min_pident=85.0, min_coverage=0.75, ref_lengths=ref_lengths
+            )
+
+            # Convert to the same structure as GeneAnnotationParser.rlmH_genes
+            for hit in filtered:
+                contig = hit.sseqid
+                start = min(hit.sstart, hit.send)
+                end = max(hit.sstart, hit.send)
+                genes.setdefault(contig, set()).add((start, end))
+
+            # Clean up results file
+            runner.cleanup_file(results_file)
+
+        finally:
+            if owns_db:
+                runner.cleanup_db(db_prefix)
+                try:
+                    os.rmdir(tmp_dir)
+                except OSError:
+                    pass
+
+        return genes
+
+    @staticmethod
+    def _get_ref_lengths(fasta_path: str) -> Dict[str, int]:
+        """Get sequence lengths from a FASTA file."""
+        lengths = {}
+        for record in SeqIO.parse(fasta_path, "fasta"):
+            lengths[record.id] = len(record.seq)
+        return lengths
+
+    def is_within_rlmH(self, site, tolerance: int = 100) -> bool:
+        """Check if an AttSite falls within an rlmH gene (with tolerance).
+
+        Tolerance is applied symmetrically to both boundaries because the
+        att site sits at the 3' end of rlmH — which maps to the lower
+        genomic coordinate on the complement strand.
+        """
+        if site.contig not in self.rlmH_genes:
+            return False
+
+        for gene_start, gene_end in self.rlmH_genes[site.contig]:
+            if (gene_start - tolerance) <= site.start and site.end <= (gene_end + tolerance):
+                return True
+
         return False
 
 
 class AttSiteFinder:
     """Main class that coordinates att site searching and analysis."""
-    
-    def __init__(self, fasta_file: str, gff3_file: str = None):
+
+    def __init__(self, fasta_file: str, gff3_file: str = None,
+                 blast_rlmh: bool = False, rlmh_ref: str = None,
+                 sequences=None, genome_db_prefix: str = None):
         self.fasta_file = fasta_file
-        self.sequences = self._parse_fasta()
-        self.gene_parser = GeneAnnotationParser(gff3_file) if gff3_file else None
+        self.sequences = sequences if sequences is not None else self._parse_fasta()
+
+        # Determine rlmH detection strategy
+        if blast_rlmh:
+            self.gene_parser = RlmHBlastDetector(fasta_file, rlmh_ref, genome_db_prefix=genome_db_prefix)
+        elif gff3_file:
+            self.gene_parser = GeneAnnotationParser(gff3_file)
+        else:
+            self.gene_parser = None
+            if not blast_rlmh:
+                warnings.warn(
+                    "No GFF file or --blast-rlmh provided. "
+                    "attR/attR2 sites will not be filtered by rlmH location.",
+                    UserWarning,
+                    stacklevel=2,
+                )
         
         # Patterns for att sites
         self.patterns = {
-            'attR': re.compile('GC[AG]TATCA[TC]AA[GA]TGATGCGGTTT'),
-            'cattR': re.compile('AAACCGCATCA[CT]TT[GA]TGATA[CT]GC'),
-            'attR2': re.compile('GC[GT]TA[TC]CA[TC]AAATAAAACTAAAA'),
-            'cattR2': re.compile('TTTTAGTTTTATTT[GA]TG[AG]TA[AC]GC'),
-            'attL': re.compile('AACC[TG]CATCA[TC][TC][AT][AC]C[TC]GATAAG[CT]'),
-            'cattL': re.compile('[AG]CTTATC[GA]G[GT][AT][GA][GA]TGATG[CA]GGTT'),
+            'attR': re.compile('GC[AGCT]TA[TC]CA[TC]AA[GA]TGATGCGGTTT'),
+            'cattR': re.compile('AAACCGCATCA[CT]TT[GA]TG[AG]TA[AGCT]GC'),
+            'attR2': re.compile('GC[AGT]TA[TC]CA[TC]AAATAAAACTAAAA'),
+            'cattR2': re.compile('TTTTAGTTTTATTT[GA]TG[AG]TA[ACT]GC'),
+            'attR3': re.compile('GC[TA]TATCATAAGTAATGAGGTTCAT'),
+            'cattR3': re.compile('ATGAACCTCATTACTTATGATA[AT]GC'),
+            'attR4': re.compile('GC[AG]TATCATAAATGATGAGGTT'),
+            'cattR4': re.compile('AACCTCATCATTTATGATA[CT]GC'),
+            'attL': re.compile('AACC[CGT]CATCA[ATC][GTC][AT][AC][CGT][TC]GATAAG[CT]'),
+            'cattL': re.compile('[GA]CTTATC[AG][GCA][TG][TA][CAG][TAG]TGATG[GCA]GGTT'),
             'attL2': re.compile('[TA][TA]TT[TA][AG][GC][TCA]AA[TA]AT[CA]ACT[GA][TGA][TC]A[AG]GG'),
             'cattL2': re.compile('CC[CT]T[GA][ACT][TC]AGT[TG]AT[TA]TT[TGA][CG][CT][TA]AA[TA][TA]'),
+            'attL13': re.compile('AACC[ACGT]CATCA[CT]TA.[CA][TC][GA]A[TG]A[CA]GCA[GA]A[GA]GCGTATCAT'),
+            'cattL13': re.compile('ATGATACGC[CT]T[CT]TGC[GT]T[AC]T[CT][AG][GT].TA[GA]TGATG[ACGT]GGTT'),
+            'attL9': re.compile('CATCATTTATGATAAG'),
+            'cattL9': re.compile('CTTATCATAAATGATG'),
+            'attL10': re.compile('CATCACTTATGATAAG'),
+            'cattL10': re.compile('CTTATCATAAGTGATG'),
+            'attL14': re.compile('TAAAGCACTATCCTAAGGGTTTTT'),
+            'cattL14': re.compile('AAAAACCCTTAGGATAGTGCTTTA'),
+            'attL15': re.compile('CATCAATACTTATAA'),
+            'cattL15': re.compile('TTATAAGTATTGATG'),
+            'attL16': re.compile('CATCAACATGCCATTTATAA'),
+            'cattL16': re.compile('TTATAAATGGCATGTTGATG'),
         }
     
     def _parse_fasta(self) -> Dict[str, str]:
@@ -191,8 +341,8 @@ class AttSiteFinder:
         filtered_sites = []
         
         for site in sites:
-            # For attR and attR2, only include if within rlmH (if gene parser available)
-            if site.pattern_name in ['attR', 'attR2'] and self.gene_parser:
+            # For right-side att sites, only include if within rlmH (if gene parser available)
+            if site.pattern_name in ['attR', 'attR2', 'attR3', 'attR4', 'cattR', 'cattR2', 'cattR3', 'cattR4'] and self.gene_parser:
                 if site.within_rlmH:
                     filtered_sites.append(site)
                 else:
@@ -223,28 +373,54 @@ def main():
     parser.add_argument("-f", "--fna", required=True, help=".fna file for searching")
     parser.add_argument("-g", "--gff", help="gff3 file with the locations of genes")
     parser.add_argument("-o", "--outfile", required=True, help="Output file to save results")
+    parser.add_argument(
+        "--blast-rlmh",
+        action="store_true",
+        default=False,
+        help="Use BLAST to detect rlmH gene (auto-enabled when no --gff provided)",
+    )
+    parser.add_argument(
+        "--rlmh-ref",
+        help="Custom rlmH reference FASTA for BLAST detection (optional)",
+    )
     args = parser.parse_args()
-    
+
     # Validate inputs
     validator = InputValidator()
-    
+
     validator.validate_fasta_file(args.fna)
-    
+
     if args.gff:
         validator.validate_gff_file(args.gff)
-    
+
+    # Auto-enable BLAST rlmH when no GFF provided
+    blast_rlmh = args.blast_rlmh
+    if not args.gff and not blast_rlmh:
+        try:
+            from sccmecextractor.blast_utils import BlastRunner
+            BlastRunner._check_blast_installed()
+            blast_rlmh = True
+            print("No GFF provided; auto-enabling BLAST-based rlmH detection")
+        except Exception:
+            print(
+                "WARNING: No GFF provided and BLAST+ not available. "
+                "attR/attR2 filtering by rlmH will be disabled."
+            )
+
     # Create the finder
-    finder = AttSiteFinder(args.fna, args.gff)
-    
+    finder = AttSiteFinder(
+        args.fna, args.gff, blast_rlmh=blast_rlmh, rlmh_ref=args.rlmh_ref
+    )
+
     # Find all sites
     all_sites = finder.find_all_sites()
-    
+
     # Filter sites according to rules
     filtered_sites = finder.filter_sites(all_sites)
-    
+
     # Write results
     finder.write_results(filtered_sites, args.outfile)
-    
+
     print(f"\nFound {len(filtered_sites)} att sites total")
     print(f"Results written to {args.outfile}")
 

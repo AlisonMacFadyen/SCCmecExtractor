@@ -1,85 +1,43 @@
 Bootstrap: docker
-From: mambaorg/micromamba:1.5.10
+From: alisonmacfadyen/sccmecextractor:latest
 
 %labels
     Author Alison MacFadyen
     Email alison.macfadyen86@gmail.com
-    Version 1.2.3
-    Description SCCmecExtractor: Pipeline for extracting SCCmec sequences from Staphylococcus genomes
+    Version 1.3.0
+    Description SCCmecExtractor: Pipeline for extracting and typing SCCmec elements from Staphylococcus and Mammaliicoccus genomes
 
 %help
-    SCCmecExtractor - A toolkit for extracting SCCmec sequences from Staphylococcus genomes
-    
-    This container includes:
-    - SCCmecExtractor (locate_att_sites.py and extract_SCCmec.py)
-    - Bakta for genome annotation
-    - Biopython and dependencies
-    
+    SCCmecExtractor - A toolkit for extracting and typing SCCmec and
+    non-mec SCC elements from Staphylococcus and Mammaliicoccus genomes
+
+    Available commands:
+      sccmec-pipeline      - Run the complete pipeline (recommended)
+      sccmec-locate-att    - Locate attachment sites
+      sccmec-extract       - Extract SCCmec sequences
+      sccmec-type          - Type SCCmec by mec/ccr gene content
+      sccmec-report        - Generate unified report
+      bakta                - Run Bakta annotation
+
     Usage:
-        # Locate attachment sites
-        singularity exec sccmecextractor.sif sccmec-locate-att -f genome.fna -g genome.gff3 -o att_sites.tsv
-        
-        # Extract SCCmec sequences
-        singularity exec sccmecextractor.sif sccmec-extract -f genome.fna -g genome.gff3 -a att_sites.tsv -s output/
-        
-        # Run Bakta annotation (requires database)
-        singularity exec --bind /path/to/bakta_db:/data/bakta_db sccmecextractor.sif \
-            bakta --db /data/bakta_db genome.fna.gz --output bakta_output
-    
+        singularity exec sccmecextractor.sif sccmec-pipeline --fna-dir genomes/ -o results/
+        singularity exec sccmecextractor.sif sccmec-pipeline -f genome.fna -g genome.gff3 -o results/
+
     Mount points:
-        /data/bakta_db - Bakta database location (bind your database here)
+        /data/bakta_db - Bakta database location (only needed for GFF workflow)
         /work          - Working directory for input/output files
 
-%files
-    # Copy application files into the container
-    src /app/src
-    pyproject.toml /app/pyproject.toml
-    README.md /app/README.md
-    VERSION /app/VERSION
-    requirements.txt /app/requirements.txt
-
-%post
-    # Install system dependencies
-    apt-get update && apt-get install -y \
-        wget \
-        curl \
-        git \
-        procps \
-        && rm -rf /var/lib/apt/lists/*
-    
-    # Create conda environment and install packages
-    eval "$(micromamba shell hook --shell bash)"
-    micromamba create -y -n sccmecextractor -c conda-forge -c bioconda \
-        python=3.11 \
-        pip \
-        biopython \
-        bakta=1.12.0
-    
-    micromamba activate sccmecextractor
-    
-    # Install SCCmecExtractor
-    cd /app
-    pip install --no-cache-dir -e .
-    
-    # Create mount points
-    mkdir -p /data/bakta_db /work
-    
-    # Clean up
-    micromamba clean --all --yes
-
-%environment
-    export BAKTA_DB=/data/bakta_db
-    export PATH=/opt/conda/envs/sccmecextractor/bin:$PATH
-    export LC_ALL=C
-
 %runscript
-    echo "SCCmecExtractor Container"
-    echo "========================="
+    echo "SCCmecExtractor Container v1.3.0"
+    echo "================================"
     echo ""
     echo "Available commands:"
+    echo "  sccmec-pipeline      - Run the complete pipeline (recommended)"
     echo "  sccmec-locate-att    - Locate attachment sites"
     echo "  sccmec-extract       - Extract SCCmec sequences"
+    echo "  sccmec-type          - Type SCCmec by mec/ccr gene content"
+    echo "  sccmec-report        - Generate unified report"
     echo "  bakta                - Run Bakta annotation"
     echo ""
     echo "Use 'singularity exec' to run specific commands"
-    echo "Example: singularity exec sccmecextractor.sif sccmec-locate-att --help"
+    echo "Example: singularity exec sccmecextractor.sif sccmec-pipeline --help"
