@@ -124,6 +124,7 @@ class TestMergeReports:
         assert merged[0]["Status"] == "extracted"
         assert merged[0]["mec_genes"] == "mecA(full)"
         assert merged[0]["typing_source"] == "sccmec"
+        assert merged[0]["element_type"] == "SCCmec"
 
     def test_extraction_only(self):
         """Extraction-only entry gets dash for typing columns."""
@@ -134,6 +135,7 @@ class TestMergeReports:
         assert merged[0]["mec_genes"] == "-"
         assert merged[0]["ccr_complex_type"] == "-"
         assert merged[0]["typing_source"] == "-"
+        assert merged[0]["element_type"] == "SCC"
 
     def test_typing_only(self):
         """Typing-only entry gets dash for extraction columns, source is wgs."""
@@ -145,6 +147,7 @@ class TestMergeReports:
         assert merged[0]["mec_genes"] == "mecA(full)"
         # No extraction status → inferred as wgs
         assert merged[0]["typing_source"] == "wgs"
+        assert merged[0]["element_type"] == "-"
 
     def test_full_outer_join(self):
         """Both sides present, some keys only in one side."""
@@ -192,6 +195,20 @@ class TestTypingSourceInference:
         merged = merge_reports(ext, typ)
         assert merged[0]["typing_source"] == "sccmec"
 
+    def test_fallback_extracted_is_sccmec(self):
+        """Typing + Status=fallback_extracted → typing_source='sccmec'."""
+        ext = {"g1": {"Input_File": "g1", "Status": "fallback_extracted"}}
+        typ = {"g1": {"Input_File": "g1", "mec_genes": "mecA(full)"}}
+        merged = merge_reports(ext, typ)
+        assert merged[0]["typing_source"] == "sccmec"
+
+    def test_composite_fallback_extracted_is_sccmec(self):
+        """Typing + Status=composite_fallback_extracted → typing_source='sccmec'."""
+        ext = {"g1": {"Input_File": "g1", "Status": "composite_fallback_extracted"}}
+        typ = {"g1": {"Input_File": "g1", "mec_genes": "mecA(full)"}}
+        merged = merge_reports(ext, typ)
+        assert merged[0]["typing_source"] == "sccmec"
+
     def test_failed_genome_is_wgs(self):
         """Typing + Status=failed → typing_source='wgs'."""
         ext = {"g1": {"Input_File": "g1", "Status": "failed"}}
@@ -231,6 +248,100 @@ class TestTypingSourceInference:
         merged = merge_reports(ext, typ)
         assert merged[0]["typing_source"] == "-"
         assert merged[0]["mec_genes"] == "-"
+
+
+# ---------------------------------------------------------------------------
+# TestElementType
+# ---------------------------------------------------------------------------
+
+class TestElementType:
+    """Tests for element_type classification."""
+
+    def test_extracted_with_mec_is_sccmec(self):
+        """Extracted element with mec genes → element_type='SCCmec'."""
+        ext = {"g1": {"Input_File": "g1", "Status": "extracted"}}
+        typ = {"g1": {"Input_File": "g1", "mec_genes": "mecA(full)"}}
+        merged = merge_reports(ext, typ)
+        assert merged[0]["element_type"] == "SCCmec"
+
+    def test_extracted_without_mec_is_scc(self):
+        """Extracted element without mec genes → element_type='SCC'."""
+        ext = {"g1": {"Input_File": "g1", "Status": "extracted"}}
+        typ = {"g1": {"Input_File": "g1", "mec_genes": "-"}}
+        merged = merge_reports(ext, typ)
+        assert merged[0]["element_type"] == "SCC"
+
+    def test_extracted_no_typing_is_scc(self):
+        """Extracted but no typing data → mec_genes defaults to '-' → 'SCC'."""
+        ext = {"g1": {"Input_File": "g1", "Status": "extracted"}}
+        merged = merge_reports(ext, {})
+        assert merged[0]["element_type"] == "SCC"
+
+    def test_fallback_extracted_with_mec_is_sccmec(self):
+        """Fallback-extracted element with mec → element_type='SCCmec'."""
+        ext = {"g1": {"Input_File": "g1", "Status": "fallback_extracted"}}
+        typ = {"g1": {"Input_File": "g1", "mec_genes": "mecA(full)"}}
+        merged = merge_reports(ext, typ)
+        assert merged[0]["element_type"] == "SCCmec"
+
+    def test_fallback_extracted_without_mec_is_scc(self):
+        """Fallback-extracted element without mec → element_type='SCC'."""
+        ext = {"g1": {"Input_File": "g1", "Status": "fallback_extracted"}}
+        typ = {"g1": {"Input_File": "g1", "mec_genes": "-"}}
+        merged = merge_reports(ext, typ)
+        assert merged[0]["element_type"] == "SCC"
+
+    def test_composite_extracted_with_mec_is_sccmec(self):
+        """Composite-extracted element with mec → element_type='SCCmec'."""
+        ext = {"g1": {"Input_File": "g1", "Status": "composite_extracted"}}
+        typ = {"g1": {"Input_File": "g1", "mec_genes": "mecA(full)"}}
+        merged = merge_reports(ext, typ)
+        assert merged[0]["element_type"] == "SCCmec"
+
+    def test_composite_fallback_extracted_without_mec_is_scc(self):
+        """Composite-fallback-extracted without mec → element_type='SCC'."""
+        ext = {"g1": {"Input_File": "g1", "Status": "composite_fallback_extracted"}}
+        typ = {"g1": {"Input_File": "g1", "mec_genes": "-"}}
+        merged = merge_reports(ext, typ)
+        assert merged[0]["element_type"] == "SCC"
+
+    def test_failed_is_dash(self):
+        """Failed extraction → element_type='-'."""
+        ext = {"g1": {"Input_File": "g1", "Status": "failed"}}
+        typ = {"g1": {"Input_File": "g1", "mec_genes": "mecA(full)"}}
+        merged = merge_reports(ext, typ)
+        assert merged[0]["element_type"] == "-"
+
+    def test_no_ccr_element_is_dash(self):
+        """no_ccr_element status → element_type='-'."""
+        ext = {"g1": {"Input_File": "g1", "Status": "no_ccr_element"}}
+        typ = {"g1": {"Input_File": "g1", "mec_genes": "-"}}
+        merged = merge_reports(ext, typ)
+        assert merged[0]["element_type"] == "-"
+
+    def test_no_extraction_row_is_dash(self):
+        """No extraction row at all → element_type='-'."""
+        typ = {"g1": {"Input_File": "g1", "mec_genes": "mecA(full)"}}
+        merged = merge_reports({}, typ)
+        assert merged[0]["element_type"] == "-"
+
+    def test_mixed_element_types(self):
+        """Multiple genomes with different element types."""
+        ext = {
+            "g1": {"Input_File": "g1", "Status": "extracted"},
+            "g2": {"Input_File": "g2", "Status": "extracted"},
+            "g3": {"Input_File": "g3", "Status": "failed"},
+        }
+        typ = {
+            "g1": {"Input_File": "g1", "mec_genes": "mecA(full)"},
+            "g2": {"Input_File": "g2", "mec_genes": "-"},
+            "g3": {"Input_File": "g3", "mec_genes": "mecA(full)"},
+        }
+        merged = merge_reports(ext, typ)
+        by_key = {r["Input_File"]: r for r in merged}
+        assert by_key["g1"]["element_type"] == "SCCmec"
+        assert by_key["g2"]["element_type"] == "SCC"
+        assert by_key["g3"]["element_type"] == "-"
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +431,8 @@ class TestCLI:
         assert data[header.index("mec_genes")] == "mecA(full)"
         # Check typing source
         assert data[header.index("typing_source")] == "sccmec"
+        # Check element type
+        assert data[header.index("element_type")] == "SCCmec"
 
     def test_cli_mixed_sources(self, tmp_path):
         """End-to-end: typing source inferred from extraction status."""
@@ -376,6 +489,7 @@ class TestCLI:
         assert d1["Input_File"] == "genome1"
         assert d1["typing_source"] == "sccmec"
         assert d1["Status"] == "extracted"
+        assert d1["element_type"] == "SCCmec"
 
         # genome2: failed → typing_source='wgs'
         d2 = dict(zip(header, lines[2].split("\t")))
@@ -384,6 +498,7 @@ class TestCLI:
         assert d2["Status"] == "failed"
         assert d2["mec_genes"] == "mecA(full)"
         assert d2["ccr_complex_type"] == "5"
+        assert d2["element_type"] == "-"
 
     def test_missing_input_error(self, tmp_path):
         """Missing input file causes non-zero exit."""
