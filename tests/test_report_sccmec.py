@@ -439,7 +439,7 @@ class TestCLI:
         ext_file = tmp_path / "extraction.tsv"
         _write_extraction_tsv(ext_file, [
             {"Input_File": "genome1", "Status": "extracted", "Contig": "c1"},
-            {"Input_File": "genome2", "Status": "failed", "Partial_Type": "right_only"},
+            {"Input_File": "genome2", "Status": "failed", "Failure_Reason": "right_only"},
         ])
 
         # Single typing file with results from both sources

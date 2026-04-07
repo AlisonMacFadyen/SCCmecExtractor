@@ -379,9 +379,9 @@ class TestCompositeCCRValidation:
 class TestPartialReporting:
     """Tests for partial element reporting when extraction fails."""
 
-    @patch.object(SCCmecExtractor, '_has_ccr_in_genome', return_value=True)
+    @patch.object(SCCmecExtractor, '_classify_ccr_status', return_value="valid")
     def test_diagnose_partial_right_only(self, mock_ccr, test_genome, test_gff, partial_right_tsv, temp_output_dir):
-        """Right-only TSV with ccr present → partial_type='right_only'."""
+        """Right-only TSV with valid ccr → failure_reason='right_only'."""
         report_file = temp_output_dir / "report.tsv"
         extractor = SCCmecExtractor(
             str(test_genome), str(test_gff), str(partial_right_tsv)
@@ -392,11 +392,11 @@ class TestPartialReporting:
         lines = report_file.read_text().strip().split("\n")
         row = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
         assert row["Status"] == "failed"
-        assert row["Partial_Type"] == "right_only"
+        assert row["Failure_Reason"] == "right_only"
 
-    @patch.object(SCCmecExtractor, '_has_ccr_in_genome', return_value=True)
+    @patch.object(SCCmecExtractor, '_classify_ccr_status', return_value="valid")
     def test_diagnose_partial_cross_contig(self, mock_ccr, test_genome, test_gff, cross_contig_tsv, temp_output_dir):
-        """attR on contig_1, attL on contig_2 with ccr present → partial_type='cross_contig'."""
+        """attR on contig_1, attL on contig_2 with valid ccr → failure_reason='cross_contig'."""
         report_file = temp_output_dir / "report.tsv"
         extractor = SCCmecExtractor(
             str(test_genome), str(test_gff), str(cross_contig_tsv)
@@ -407,11 +407,11 @@ class TestPartialReporting:
         lines = report_file.read_text().strip().split("\n")
         row = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
         assert row["Status"] == "failed"
-        assert row["Partial_Type"] == "cross_contig"
+        assert row["Failure_Reason"] == "cross_contig"
 
-    @patch.object(SCCmecExtractor, '_has_ccr_in_genome', return_value=False)
+    @patch.object(SCCmecExtractor, '_classify_ccr_status', return_value="no_ccr")
     def test_diagnose_partial_no_sites(self, mock_ccr, test_genome, test_gff, empty_sites_tsv, temp_output_dir):
-        """Empty TSV, no ccr → partial_type='no_sites'."""
+        """Empty TSV, no ccr → failure_reason='no_ccr' (ccr takes priority)."""
         report_file = temp_output_dir / "report.tsv"
         extractor = SCCmecExtractor(
             str(test_genome), str(test_gff), str(empty_sites_tsv)
@@ -422,15 +422,15 @@ class TestPartialReporting:
         lines = report_file.read_text().strip().split("\n")
         row = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
         assert row["Status"] == "failed"
-        assert row["Partial_Type"] == "no_sites"
+        assert row["Failure_Reason"] == "no_ccr"
 
 
 class TestNoCcrReporting:
-    """Tests for no_ccr partial_type when ccr genes are absent."""
+    """Tests for failure_reason when ccr genes are absent or unpaired."""
 
-    @patch.object(SCCmecExtractor, '_has_ccr_in_genome', return_value=False)
+    @patch.object(SCCmecExtractor, '_classify_ccr_status', return_value="no_ccr")
     def test_no_ccr_right_only(self, mock_ccr, test_genome, test_gff, partial_right_tsv, temp_output_dir):
-        """Right-only att sites but no ccr → partial_type='no_ccr', no ambiguous report."""
+        """Right-only att sites but no ccr → failure_reason='no_ccr' (ccr takes priority)."""
         report_file = temp_output_dir / "report.tsv"
         amb_file = temp_output_dir / "ambiguous.tsv"
         extractor = SCCmecExtractor(
@@ -445,13 +445,13 @@ class TestNoCcrReporting:
         lines = report_file.read_text().strip().split("\n")
         row = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
         assert row["Status"] == "failed"
-        assert row["Partial_Type"] == "no_ccr"
+        assert row["Failure_Reason"] == "no_ccr"
         assert "right_only" in row["Notes"]
         assert not amb_file.exists()
 
-    @patch.object(SCCmecExtractor, '_has_ccr_in_genome', return_value=False)
+    @patch.object(SCCmecExtractor, '_classify_ccr_status', return_value="no_ccr")
     def test_no_ccr_cross_contig(self, mock_ccr, test_genome, test_gff, cross_contig_tsv, temp_output_dir):
-        """Cross-contig att sites but no ccr → partial_type='no_ccr', no ambiguous report."""
+        """Cross-contig att sites but no ccr → failure_reason='no_ccr' (ccr takes priority)."""
         report_file = temp_output_dir / "report.tsv"
         amb_file = temp_output_dir / "ambiguous.tsv"
         extractor = SCCmecExtractor(
@@ -466,11 +466,32 @@ class TestNoCcrReporting:
         lines = report_file.read_text().strip().split("\n")
         row = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
         assert row["Status"] == "failed"
-        assert row["Partial_Type"] == "no_ccr"
+        assert row["Failure_Reason"] == "no_ccr"
         assert "cross_contig" in row["Notes"]
         assert not amb_file.exists()
 
-    @patch.object(SCCmecExtractor, '_has_ccr_in_genome', return_value=True)
+    @patch.object(SCCmecExtractor, '_classify_ccr_status', return_value="no_ccr_pair")
+    def test_no_ccr_pair_right_only(self, mock_ccr, test_genome, test_gff, partial_right_tsv, temp_output_dir):
+        """Right-only att sites with unpaired ccr → failure_reason='no_ccr_pair'."""
+        report_file = temp_output_dir / "report.tsv"
+        amb_file = temp_output_dir / "ambiguous.tsv"
+        extractor = SCCmecExtractor(
+            str(test_genome), str(test_gff), str(partial_right_tsv)
+        )
+        success = extractor.extract_sccmec(
+            str(temp_output_dir / "out"), report_file=str(report_file),
+            ambiguous_report_file=str(amb_file),
+        )
+        assert not success
+
+        lines = report_file.read_text().strip().split("\n")
+        row = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
+        assert row["Status"] == "failed"
+        assert row["Failure_Reason"] == "no_ccr_pair"
+        assert "right_only" in row["Notes"]
+        assert not amb_file.exists()
+
+    @patch.object(SCCmecExtractor, '_classify_ccr_status', return_value="valid")
     def test_ccr_present_right_only_writes_ambiguous(self, mock_ccr, test_genome, test_gff, partial_right_tsv, temp_output_dir):
         """Right-only with ccr present → partial_type='right_only', ambiguous report written."""
         report_file = temp_output_dir / "report.tsv"
@@ -487,12 +508,12 @@ class TestNoCcrReporting:
         lines = report_file.read_text().strip().split("\n")
         row = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
         assert row["Status"] == "failed"
-        assert row["Partial_Type"] == "right_only"
+        assert row["Failure_Reason"] == "right_only"
         assert amb_file.exists()
 
-    @patch.object(SCCmecExtractor, '_has_ccr_in_genome', return_value=True)
+    @patch.object(SCCmecExtractor, '_classify_ccr_status', return_value="valid")
     def test_no_sites_ccr_present_writes_ambiguous(self, mock_ccr, test_genome, test_gff, empty_sites_tsv, temp_output_dir):
-        """No att sites but ccr present → partial_type='no_sites', ambiguous report written."""
+        """No att sites but ccr present → failure_reason='no_sites', ambiguous report written."""
         report_file = temp_output_dir / "report.tsv"
         amb_file = temp_output_dir / "ambiguous.tsv"
         extractor = SCCmecExtractor(
@@ -507,8 +528,8 @@ class TestNoCcrReporting:
         lines = report_file.read_text().strip().split("\n")
         row = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
         assert row["Status"] == "failed"
-        assert row["Partial_Type"] == "no_sites"
-        assert "ccr genes present" in row["Notes"]
+        assert row["Failure_Reason"] == "no_sites"
+        assert "Missing required att sites" in row["Notes"]
         assert amb_file.exists()
 
 
@@ -735,7 +756,7 @@ class TestAttBOverlap:
         lines = report_file.read_text().strip().split("\n")
         row = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
         assert row["Status"] == "failed"
-        assert row["Partial_Type"] == "size_out_of_range"
+        assert row["Failure_Reason"] == "size_out_of_range"
         assert "Overlapping" in row["Notes"]
 
     def test_overlap_skipped_for_valid_pair(self, test_genome, test_gff, overlap_with_valid_tsv, temp_output_dir):
