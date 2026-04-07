@@ -118,13 +118,13 @@ docker build -t sccmecextractor:latest -f containers/Dockerfile .
 # FASTA-only mode (no Bakta database needed)
 docker run --rm \
   -v $PWD:/work \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   sccmec-pipeline --fna-dir genomes/ -o results/
 
 # With GFF annotation
 docker run --rm \
   -v $PWD:/work \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   sccmec-pipeline -f genome.fna -g genome.gff3 -o results/
 ```
 
@@ -352,14 +352,14 @@ sccmec-report -e extraction_report.tsv -t typing_results.tsv -o unified_report.t
 # FASTA-only mode (simplest)
 docker run --rm \
   -v $PWD:/work \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   sccmec-pipeline --fna-dir genomes/ -o results/
 
 # With Bakta annotation
 docker run --rm \
   -v $PWD:/work \
   -v ~/bakta_db:/data/bakta_db \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   bash -c "
     bakta --db /data/bakta_db genome.fna --output bakta_output --prefix genome && \
     sccmec-pipeline -f genome.fna -g bakta_output/genome.gff3 -o results/

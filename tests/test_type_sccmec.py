@@ -290,7 +290,8 @@ class TestSCCmecTyperIntegration:
             header = f.readline().strip().split("\t")
         expected = [
             "Input_File", "mec_genes", "mec_identity", "mec_coverage",
-            "ccr_genes", "ccr_allotypes", "ccr_identity", "ccr_complex_type",
+            "mec_locations", "ccr_genes", "ccr_allotypes", "ccr_identity",
+            "ccr_locations", "ccr_complex_type",
         ]
         assert header == expected
 

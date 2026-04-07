@@ -40,6 +40,9 @@ class GeneHit:
     pident: float
     coverage: float
     classification: str  # "full", "partial", "novel_full", "novel_partial"
+    contig: str = "-"
+    start: int = 0
+    end: int = 0
 
 
 class MecClassifier:
@@ -104,6 +107,9 @@ class MecClassifier:
                     pident=round(hit.pident, 1),
                     coverage=round(coverage * 100, 1),
                     classification=classification,
+                    contig=hit.sseqid,
+                    start=min(hit.sstart, hit.send),
+                    end=max(hit.sstart, hit.send),
                 )
             )
 
@@ -170,6 +176,9 @@ class CcrClassifier:
                     pident=round(hit.pident, 1),
                     coverage=round(coverage * 100, 1),
                     classification=classification,
+                    contig=hit.sseqid,
+                    start=min(hit.sstart, hit.send),
+                    end=max(hit.sstart, hit.send),
                 )
             )
 
@@ -291,9 +300,11 @@ TYPING_HEADER = [
     "mec_genes",
     "mec_identity",
     "mec_coverage",
+    "mec_locations",
     "ccr_genes",
     "ccr_allotypes",
     "ccr_identity",
+    "ccr_locations",
     "ccr_complex_type",
 ]
 
@@ -404,10 +415,14 @@ class SCCmecTyper:
             )
             mec_identity = ";".join(str(r.pident) for r in mec_results)
             mec_coverage = ";".join(str(r.coverage) for r in mec_results)
+            mec_locations = ";".join(
+                f"{r.contig}:{r.start}-{r.end}" for r in mec_results
+            )
         else:
             mec_genes = "-"
             mec_identity = "-"
             mec_coverage = "-"
+            mec_locations = "-"
 
         if ccr_results:
             ccr_genes = ";".join(
@@ -417,10 +432,14 @@ class SCCmecTyper:
             sorted_ccr = sorted(ccr_results, key=lambda r: r.gene_name)
             ccr_allotypes = ";".join(r.gene_name for r in sorted_ccr)
             ccr_identity = ";".join(str(r.pident) for r in sorted_ccr)
+            ccr_locations = ";".join(
+                f"{r.contig}:{r.start}-{r.end}" for r in sorted_ccr
+            )
         else:
             ccr_genes = "-"
             ccr_allotypes = "-"
             ccr_identity = "-"
+            ccr_locations = "-"
 
         ccr_complex_type = CcrComplexLookup.lookup(ccr_results)
 
@@ -429,9 +448,11 @@ class SCCmecTyper:
             "mec_genes": mec_genes,
             "mec_identity": mec_identity,
             "mec_coverage": mec_coverage,
+            "mec_locations": mec_locations,
             "ccr_genes": ccr_genes,
             "ccr_allotypes": ccr_allotypes,
             "ccr_identity": ccr_identity,
+            "ccr_locations": ccr_locations,
             "ccr_complex_type": ccr_complex_type,
         }
 

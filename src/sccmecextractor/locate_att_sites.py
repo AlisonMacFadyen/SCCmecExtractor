@@ -286,10 +286,6 @@ class AttSiteFinder:
             'cattL10': re.compile('CTTATCATAAGTGATG'),
             'attL14': re.compile('TAAAGCACTATCCTAAGGGTTTTT'),
             'cattL14': re.compile('AAAAACCCTTAGGATAGTGCTTTA'),
-            'attL15': re.compile('CATCAATACTTATAA'),
-            'cattL15': re.compile('TTATAAGTATTGATG'),
-            'attL16': re.compile('CATCAACATGCCATTTATAA'),
-            'cattL16': re.compile('TTATAAATGGCATGTTGATG'),
         }
     
     def _parse_fasta(self) -> Dict[str, str]:

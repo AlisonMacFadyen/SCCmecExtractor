@@ -98,14 +98,14 @@ class ExtractionReport:
     outer_attl_end: str = "-"
     composite_size: str = "-"
     contig_edge_flags: str = "-"
-    partial_type: str = "-"
+    failure_reason: str = "-"
     notes: str = "-"
 
     HEADER = (
         "Input_File\tStatus\tContig\tAttR_Pattern\tAttR_Start\tAttR_End\t"
         "AttL_Pattern\tAttL_Start\tAttL_End\tElement_Size_bp\tIs_Composite\t"
         "Outer_AttL_Pattern\tOuter_AttL_Start\tOuter_AttL_End\tComposite_Size_bp\t"
-        "Contig_Edge_Flags\tPartial_Type\tNotes"
+        "Contig_Edge_Flags\tFailure_Reason\tNotes"
     )
 
     def to_tsv_row(self) -> str:
@@ -116,7 +116,7 @@ class ExtractionReport:
             str(self.element_size), str(self.is_composite),
             self.outer_attl_pattern, str(self.outer_attl_start), str(self.outer_attl_end),
             str(self.composite_size),
-            self.contig_edge_flags, self.partial_type, self.notes,
+            self.contig_edge_flags, self.failure_reason, self.notes,
         ])
 
 
@@ -685,14 +685,13 @@ class SCCmecExtractor:
 
     MAX_ATTL_RLMH_DISTANCE = 120_000
 
-    def _has_ccr_in_genome(self) -> bool:
-        """Check if valid ccr genes exist anywhere in the genome.
+    def _classify_ccr_status(self) -> str:
+        """Classify ccr gene status in the genome.
 
-        Uses BLAST to detect ccr genes without position or contig
-        constraints.  This accommodates fragmented assemblies where ccr
-        and rlmH may land on different contigs.
-
-        Returns True if valid ccr (ccrA+ccrB or ccrC) found.
+        Returns:
+            "valid"       — functional ccr pair (ccrA+ccrB) or ccrC found
+            "no_ccr_pair" — lone ccrA or lone ccrB without partner (and no ccrC)
+            "no_ccr"      — no ccr genes detected at all
         """
         runner = BlastRunner()
 
@@ -726,9 +725,16 @@ class SCCmecExtractor:
                 gene_type = hit.qseqid.rstrip('0123456789')
                 ccr_types.add(gene_type)
 
+            if not ccr_types:
+                return "no_ccr"
+
             has_AB = 'ccrA' in ccr_types and 'ccrB' in ccr_types
             has_C = 'ccrC' in ccr_types
-            return has_AB or has_C
+            if has_AB or has_C:
+                return "valid"
+
+            # Has some ccr gene(s) but not a valid pair
+            return "no_ccr_pair"
 
         finally:
             if owns_db:
@@ -737,6 +743,14 @@ class SCCmecExtractor:
                     os.rmdir(tmp_dir)
                 except OSError:
                     pass
+
+    def _has_ccr_in_genome(self) -> bool:
+        """Check if valid ccr genes exist anywhere in the genome.
+
+        Convenience wrapper around _classify_ccr_status().
+        Returns True if valid ccr (ccrA+ccrB or ccrC) found.
+        """
+        return self._classify_ccr_status() == "valid"
 
     MIN_ELEMENT_SIZE = 1_000       # 1 kb — anything smaller is a pattern overlap artefact
     MAX_ELEMENT_SIZE = 200_000     # 200 kb — anything larger is a spurious cross-genome match
@@ -859,7 +873,7 @@ class SCCmecExtractor:
                 # must be plausible regardless of composite)
                 if element_size < self.MIN_ELEMENT_SIZE or element_size > self.MAX_ELEMENT_SIZE:
                     report.status = "failed"
-                    report.partial_type = "size_out_of_range"
+                    report.failure_reason = "size_out_of_range"
                     report.notes = (f"Left-only element size {element_size} bp outside valid range "
                                     f"({self.MIN_ELEMENT_SIZE}-{self.MAX_ELEMENT_SIZE} bp)")
                     # Detect origin-spanning on circular chromosomes
@@ -868,7 +882,7 @@ class SCCmecExtractor:
                         if contig_len and element_size > contig_len // 2:
                             wrap_around = contig_len - element_size
                             if self.MIN_ELEMENT_SIZE <= wrap_around <= self.MAX_ELEMENT_SIZE:
-                                report.partial_type = "origin_spanning"
+                                report.failure_reason = "origin_spanning"
                                 report.notes = (
                                     f"Probable origin-spanning element on circular chromosome "
                                     f"(contig {contig_len} bp). Linear distance {element_size} bp "
@@ -879,7 +893,7 @@ class SCCmecExtractor:
                         self._write_report(report, report_file)
                     if ambiguous_report_file:
                         amb = self._build_ambiguous_report(
-                            report.partial_type, report.notes,
+                            report.failure_reason, report.notes,
                             element_size=str(element_size))
                         self._write_ambiguous_report(amb, ambiguous_report_file)
                     return False
@@ -988,10 +1002,10 @@ class SCCmecExtractor:
 
         # --- Failure: no valid att sites ---
         if not self.att_sites.has_valid_sites():
-            partial_type = self.att_sites.diagnose_partial()
+            failure_reason = self.att_sites.diagnose_partial()
 
             # Try left-only recovery if we have attL but no attR
-            if partial_type == "left_only":
+            if failure_reason == "left_only":
                 recovery_result = self._attempt_left_only_recovery(
                     report, output_dir, report_file,
                     ambiguous_report_file=ambiguous_report_file,
@@ -1006,27 +1020,28 @@ class SCCmecExtractor:
             report.status = "failed"
             report.contig_edge_flags = self._annotate_edge_flags_all_sites()
 
-            # Prioritise ccr absence over att site diagnosis
+            # ccr status takes priority: no ccr / no pair means extraction
+            # is impossible regardless of att sites
+            ccr_status = self._classify_ccr_status()
             write_ambiguous = False
-            if partial_type == "no_sites" and self._has_ccr_in_genome():
-                report.partial_type = partial_type
-                report.notes = "Missing required att sites (right and/or left); ccr genes present"
-                write_ambiguous = True
-            elif partial_type == "no_sites":
-                report.partial_type = partial_type
-                report.notes = "Missing required att sites (right and/or left)"
-            elif self._has_ccr_in_genome():
-                report.partial_type = partial_type
-                report.notes = "Missing required att sites (right and/or left)"
-                write_ambiguous = True
+            if ccr_status == "no_ccr":
+                report.failure_reason = "no_ccr"
+                report.notes = (f"No ccr genes detected in genome "
+                                f"(att site diagnosis: {failure_reason})")
+            elif ccr_status == "no_ccr_pair":
+                report.failure_reason = "no_ccr_pair"
+                report.notes = (f"Unpaired ccr gene detected (no valid ccrA+ccrB or ccrC) "
+                                f"(att site diagnosis: {failure_reason})")
             else:
-                report.partial_type = "no_ccr"
-                report.notes = (f"No ccr genes detected in genome (att site diagnosis: {partial_type})")
+                # Valid ccr pair — structural diagnosis is the failure reason
+                report.failure_reason = failure_reason
+                report.notes = "Missing required att sites (right and/or left)"
+                write_ambiguous = True
 
             if report_file:
                 self._write_report(report, report_file)
             if ambiguous_report_file and write_ambiguous:
-                amb = self._build_ambiguous_report(report.partial_type, report.notes)
+                amb = self._build_ambiguous_report(report.failure_reason, report.notes)
                 self._write_ambiguous_report(amb, ambiguous_report_file)
             return False
 
@@ -1040,7 +1055,7 @@ class SCCmecExtractor:
                 att_r, att_l = unfiltered_pair
                 overlap_size = abs(att_r.start - att_l.end)
                 report.status = "failed"
-                report.partial_type = "size_out_of_range"
+                report.failure_reason = "size_out_of_range"
                 report.contig = att_r.contig
                 report.attr_pattern = att_r.pattern
                 report.attr_start = str(att_r.start)
@@ -1062,10 +1077,10 @@ class SCCmecExtractor:
                 return False
 
             # Genuinely no pair — existing diagnosis logic
-            partial_type = self.att_sites.diagnose_partial()
+            failure_reason = self.att_sites.diagnose_partial()
 
             # Try left-only recovery for cross-contig cases too
-            if partial_type in ("left_only", "cross_contig"):
+            if failure_reason in ("left_only", "cross_contig"):
                 recovery_result = self._attempt_left_only_recovery(
                     report, output_dir, report_file,
                     ambiguous_report_file=ambiguous_report_file,
@@ -1079,20 +1094,27 @@ class SCCmecExtractor:
             report.status = "failed"
             report.contig_edge_flags = self._annotate_edge_flags_all_sites()
 
-            # Prioritise ccr absence over att site diagnosis
-            if self._has_ccr_in_genome():
-                report.partial_type = partial_type
+            # ccr status takes priority
+            ccr_status = self._classify_ccr_status()
+            if ccr_status == "no_ccr":
+                report.failure_reason = "no_ccr"
+                report.notes = (f"No ccr genes detected in genome "
+                                f"(att site diagnosis: {failure_reason})")
+                write_ambiguous = False
+            elif ccr_status == "no_ccr_pair":
+                report.failure_reason = "no_ccr_pair"
+                report.notes = (f"Unpaired ccr gene detected (no valid ccrA+ccrB or ccrC) "
+                                f"(att site diagnosis: {failure_reason})")
+                write_ambiguous = False
+            else:
+                report.failure_reason = failure_reason
                 report.notes = "No attR-attL pair on same contig"
                 write_ambiguous = True
-            else:
-                report.partial_type = "no_ccr"
-                report.notes = (f"No ccr genes detected in genome (att site diagnosis: {partial_type})")
-                write_ambiguous = False
 
             if report_file:
                 self._write_report(report, report_file)
             if ambiguous_report_file and write_ambiguous:
-                amb = self._build_ambiguous_report(report.partial_type, report.notes)
+                amb = self._build_ambiguous_report(report.failure_reason, report.notes)
                 self._write_ambiguous_report(amb, ambiguous_report_file)
             return False
 
@@ -1218,7 +1240,7 @@ class SCCmecExtractor:
             # Size sanity check
             if element_size < self.MIN_ELEMENT_SIZE or element_size > self.MAX_ELEMENT_SIZE:
                 report.status = "failed"
-                report.partial_type = "size_out_of_range"
+                report.failure_reason = "size_out_of_range"
                 report.notes = (f"Element size {element_size} bp outside valid range "
                                 f"({self.MIN_ELEMENT_SIZE}-{self.MAX_ELEMENT_SIZE} bp)")
                 # Detect origin-spanning: element covers most of a circular
@@ -1228,7 +1250,7 @@ class SCCmecExtractor:
                     if contig_len and element_size > contig_len // 2:
                         wrap_around = contig_len - element_size
                         if self.MIN_ELEMENT_SIZE <= wrap_around <= self.MAX_ELEMENT_SIZE:
-                            report.partial_type = "origin_spanning"
+                            report.failure_reason = "origin_spanning"
                             report.notes = (
                                 f"Probable origin-spanning element on circular chromosome "
                                 f"(contig {contig_len} bp). Linear distance {element_size} bp "
@@ -1239,7 +1261,7 @@ class SCCmecExtractor:
                     self._write_report(report, report_file)
                 if ambiguous_report_file:
                     amb = self._build_ambiguous_report(
-                        report.partial_type, report.notes,
+                        report.failure_reason, report.notes,
                         element_size=str(element_size))
                     self._write_ambiguous_report(amb, ambiguous_report_file)
                 return False

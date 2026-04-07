@@ -25,7 +25,7 @@ EXTRACTION_HEADER = ExtractionReport.HEADER.split("\t")
 TYPING_EXTRA_COLS = [c for c in TYPING_HEADER if c != "Input_File"]
 
 # Unified header (typing_source tracks origin: "sccmec", "wgs", or "-")
-UNIFIED_HEADER = EXTRACTION_HEADER + TYPING_EXTRA_COLS + ["typing_source"]
+UNIFIED_HEADER = EXTRACTION_HEADER + TYPING_EXTRA_COLS + ["typing_source", "element_type"]
 
 
 def read_tsv(filepath, key_column="Input_File"):
@@ -72,7 +72,10 @@ def normalise_typing_keys(typing_rows):
     return normalised
 
 
-_EXTRACTED_STATUSES = {"extracted", "composite_extracted"}
+_EXTRACTED_STATUSES = {
+    "extracted", "composite_extracted",
+    "fallback_extracted", "composite_fallback_extracted",
+}
 
 
 def merge_reports(extraction_rows, typing_rows):
@@ -111,6 +114,14 @@ def merge_reports(extraction_rows, typing_rows):
             for col in TYPING_EXTRA_COLS:
                 row[col] = "-"
             row["typing_source"] = "-"
+
+        # Classify element type based on extraction + typing
+        status = ext.get("Status", "-")
+        if status in _EXTRACTED_STATUSES:
+            mec = row.get("mec_genes", "-")
+            row["element_type"] = "SCCmec" if mec != "-" else "SCC"
+        else:
+            row["element_type"] = "-"
 
         merged.append(row)
 

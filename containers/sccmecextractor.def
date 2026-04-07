@@ -4,7 +4,7 @@ From: alisonmacfadyen/sccmecextractor:latest
 %labels
     Author Alison MacFadyen
     Email alison.macfadyen86@gmail.com
-    Version 1.3.0
+    Version 1.4.0
     Description SCCmecExtractor: Pipeline for extracting and typing SCCmec elements from Staphylococcus and Mammaliicoccus genomes
 
 %help
@@ -28,7 +28,7 @@ From: alisonmacfadyen/sccmecextractor:latest
         /work          - Working directory for input/output files
 
 %runscript
-    echo "SCCmecExtractor Container v1.3.0"
+    echo "SCCmecExtractor Container v1.4.0"
     echo "================================"
     echo ""
     echo "Available commands:"

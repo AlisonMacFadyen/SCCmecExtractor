@@ -72,7 +72,7 @@ mkdir -p ~/bakta_db
 
 # Download using Docker
 docker run --rm -v ~/bakta_db/:/data/bakta_db \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   bakta_db download --output /data/bakta_db --type light
 ```
 
@@ -80,7 +80,7 @@ For the full database:
 
 ```bash
 docker run --rm -v ~/bakta_db/:/data/bakta_db \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   bakta_db download --output /data/bakta_db
 ```
 
@@ -94,19 +94,19 @@ The simplest workflow, no GFF annotation or Bakta database required:
 # Single genome
 docker run --rm \
   -v $PWD:/work \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   sccmec-pipeline -f genome.fna -o results/
 
 # Directory of genomes with multithreading
 docker run --rm \
   -v $PWD:/work \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   sccmec-pipeline --fna-dir genomes/ -o results/ -t 4
 
 # With composite element detection
 docker run --rm \
   -v $PWD:/work \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   sccmec-pipeline --fna-dir genomes/ --composite -o results/ -t 4
 ```
 
@@ -116,7 +116,7 @@ docker run --rm \
 docker run --rm \
   -v $PWD:/work \
   -v ~/bakta_db:/data/bakta_db \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   bash -c "
     bakta --db /data/bakta_db genome.fna --output bakta_output --prefix genome && \
     sccmec-pipeline -f genome.fna -g bakta_output/genome.gff3 -o results/
@@ -129,32 +129,32 @@ docker run --rm \
 # Locate attachment sites
 docker run --rm \
   -v $PWD:/work \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   sccmec-locate-att -f genome.fna -o att_sites.tsv
 
 # Extract SCC elements
 docker run --rm \
   -v $PWD:/work \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   sccmec-extract -f genome.fna -a att_sites.tsv -s sccmec_output -r extraction_report.tsv
 
 # Gene level typing extracted elements
 docker run --rm \
   -v $PWD:/work \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   sccmec-type -f sccmec_output/ -o typing_results.tsv
 
 # Generate unified report
 docker run --rm \
   -v $PWD:/work \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   sccmec-report -e extraction_report.tsv -t typing_results.tsv -o unified_report.tsv
 
 # Run Bakta annotation
 docker run --rm \
   -v $PWD:/work \
   -v ~/bakta_db:/data/bakta_db \
-  sccmecextractor:latest \
+  alisonmacfadyen/sccmecextractor:latest \
   bakta --db /data/bakta_db/db-light genome.fna.gz --output bakta_output --prefix sample
 ```
 
@@ -299,7 +299,7 @@ For FASTA-only mode, no Bakta database is needed.
 
 ```bash
 # If your genome is in $PWD/data/genome.fna
-docker run --rm -v $PWD:/work sccmecextractor:latest \
+docker run --rm -v $PWD:/work alisonmacfadyen/sccmecextractor:latest \
   sccmec-pipeline -f data/genome.fna -o output/results/
 ```
 
