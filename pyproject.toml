@@ -44,7 +44,7 @@ dev = [
 [project.scripts]
 sccmec-locate-att = "sccmecextractor.locate_att_sites:main"
 sccmec-extract = "sccmecextractor.extract_SCCmec:main"
-sccmec-type = "sccmecextractor.type_sccmec:main"
+sccmec-type = "sccmecextractor.sccmec_type_classification:main"
 sccmec-report = "sccmecextractor.report_sccmec:main"
 sccmec-pipeline = "sccmecextractor.pipeline:main"
 

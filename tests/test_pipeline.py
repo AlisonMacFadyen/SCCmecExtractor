@@ -138,10 +138,14 @@ class TestRunPipeline:
         )
         assert os.path.isdir(os.path.join(outdir, "att_sites"))
         assert os.path.isdir(os.path.join(outdir, "sccmec"))
-        assert os.path.isdir(os.path.join(outdir, "typing"))
         # Att sites file should always be created
         att_file = os.path.join(outdir, "att_sites", f"{TEST_GENOME.stem}_att_sites.tsv")
         assert os.path.isfile(att_file)
+        # Intermediate files should be cleaned up
+        assert not os.path.isfile(os.path.join(outdir, ".extraction_report.tsv"))
+        assert not os.path.isfile(os.path.join(outdir, ".typing_results.tsv"))
+        # Summary report should exist
+        assert os.path.isfile(os.path.join(outdir, "sccmec_summary.tsv"))
 
     def test_unified_report_generated(self, tmp_path):
         """Unified report file is created with correct header."""
