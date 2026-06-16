@@ -33,7 +33,7 @@ def _write_extraction_tsv(path, rows):
 
 def _write_typing_tsv(path, rows):
     """Write a minimal typing results TSV."""
-    from sccmecextractor.type_sccmec import TYPING_HEADER
+    from sccmecextractor.sccmec_type_classification import TYPING_HEADER
 
     header = "\t".join(TYPING_HEADER)
     lines = [header]

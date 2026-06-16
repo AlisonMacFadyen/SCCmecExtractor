@@ -22,7 +22,7 @@ SCC*mec*Extractor provides five CLI commands that work together to identify, ext
 | `sccmec-pipeline` | Master pipeline orchestrating all steps (recommended) |
 | `sccmec-locate-att` | Locate attachment (*att*) sites in genomic sequences |
 | `sccmec-extract` | Extract SCC elements bounded by *att* site pairs |
-| `sccmec-type` | Type extracted elements or WGS by *mec* and *ccr* gene content |
+| `sccmec-type` | Type SCC elements by *mec* complex class (A-E), *ccr* complex type (1-22) and SCC*mec* type (I-XV) |
 | `sccmec-report` | Merge extraction and typing results into a unified report |
 
 ### Key Capabilities
@@ -30,7 +30,7 @@ SCC*mec*Extractor provides five CLI commands that work together to identify, ext
 - **FASTA-only mode** — no GFF annotation required; *rlmH* detected via BLAST against a 70-species reference database
 - **Non-*mec* SCC detection** — extracts SCC elements that carry *ccr* genes but lack *mec* genes
 - **Composite element detection** — identifies tandem/nested SCC elements with multiple *att* site pairs
-- **Gene-level typing** — classifies *mec* complex (*mecA*, *mecB*, *mecC*, *mecD* allotypes) and *ccr* complex (*ccrA/B*, *ccrC* allotypes) via BLAST
+- **SCC*mec* typing** — assigns *mec* complex class (A-E), *ccr* complex type (1-22 per IWG-SCC) and SCC*mec* type (I-XV) via BLAST-based gene detection, including IS element proximity and orientation analysis
 - **Cross-genus support** — validated on *Staphylococcus* (64 species) and *Mammaliicoccus* (6 species)
 
 ## Table of Contents
@@ -232,6 +232,7 @@ Master pipeline that runs all steps: *att* site location, extraction, typing and
 sccmec-pipeline [-h] (-f FNA [FNA ...] | --fna-dir FNA_DIR)
                 [-g GFF [GFF ...] | --gff-dir GFF_DIR] [--blast-rlmh]
                 [--rlmh-ref RLMH_REF] [--composite] -o OUTDIR [-t THREADS]
+                [--mec-ref MEC_REF] [--ccr-ref CCR_REF]
 ```
 
 | Argument | Description |
@@ -245,6 +246,8 @@ sccmec-pipeline [-h] (-f FNA [FNA ...] | --fna-dir FNA_DIR)
 | `--composite` | Extract to outermost boundary for composite elements |
 | `-o`, `--outdir` | Output directory for all results |
 | `-t`, `--threads` | Number of parallel threads (default: 1) |
+| `--mec-ref` | Custom *mec* gene reference FASTA for gene content detection (see `sccmec-type`) |
+| `--ccr-ref` | Custom *ccr* gene reference FASTA for gene content detection (see `sccmec-type`) |
 
 #### `sccmec-locate-att`
 
@@ -284,7 +287,7 @@ sccmec-extract [-h] -f FNA [-g GFF] -a ATT -s SCCMEC [--composite] [-r REPORT]
 
 #### `sccmec-type`
 
-Types extracted SCC elements (or whole genomes) by *mec* and *ccr* gene content using BLAST.
+Types SCC elements (or whole genomes) by *mec* complex class (A-E), *ccr* complex type (1-22) and SCC*mec* type (I-XV).  Classification is based on BLAST detection of *mec* genes, *ccr* allotypes and *mec* complex structural genes (IS431, IS1272, *mecI*, *mecR1*), with IS element proximity and orientation analysis for *mec* class determination.
 
 ```
 sccmec-type [-h] -f FASTA [FASTA ...] -o OUTFILE [--mec-ref MEC_REF] [--ccr-ref CCR_REF]
@@ -294,8 +297,8 @@ sccmec-type [-h] -f FASTA [FASTA ...] -o OUTFILE [--mec-ref MEC_REF] [--ccr-ref 
 |---|---|
 | `-f`, `--fasta` | Input FASTA file(s) or directory of extracted SCC elements |
 | `-o`, `--outfile` | Output TSV file for typing results |
-| `--mec-ref` | Custom *mec* gene reference FASTA (default: bundled) |
-| `--ccr-ref` | Custom *ccr* gene reference FASTA (default: bundled) |
+| `--mec-ref` | Custom *mec* gene reference FASTA for gene content detection.  When provided, *mec* genes are detected using this reference; *mec* complex class and SCC*mec* type will not be assigned.  *ccr* typing still uses the bundled reference |
+| `--ccr-ref` | Custom *ccr* gene reference FASTA for gene content detection.  When provided, *ccr* genes are detected using this reference; *ccr* complex type and SCC*mec* type will not be assigned.  *mec* typing still uses the bundled reference |
 
 #### `sccmec-report`
 
@@ -407,12 +410,13 @@ The tool searches for 24 DNA motif patterns (8 attR/cattR + 16 attL/cattL) repre
 8. **Fallback Extraction**: When standard extraction fails, but *attL* is identified, fallback extraction is utilised using the location of *rlmH* as a proxy for *attR*
 9. **Strand Awareness**: Automatically handles reverse complement extraction when necessary
 
-### Gene-Level Typing
+### SCCmec Typing
 
-`sccmec-type` carries out gene-typing by BLAST-based detection of:
+`sccmec-type` performs three-tier classification via BLAST:
 
-- **_mec_ gene**: *mecA*, *mecB*, *mecC* *mecD* allotypes
-- **_ccr_ complex**: *ccrA/ccrB* pairs and *ccrC* allotypes, incorporating all 22 *ccr* complex types.
+1. ***mec* complex class** (A, B, C1, C2, D, E) — determined by *mecA*/*mecC* allotype, presence/absence of *mecI*, IS1272, IS431 and *mecR1*, and IS431 orientation.  IS elements are only counted when within 10 kbp of *mecA* on the same contig
+2. ***ccr* complex type** (1-22) — determined by *ccrA/ccrB* pair and *ccrC* allotype combinations, incorporating IWG-SCC types 1-9 and Huang *et al*. 2024 types 10-22
+3. **SCC*mec* type** (I-XV) — assigned by combining *mec* class and *ccr* complex type.  Unrecognised combinations are reported as `novel_combination`
 
 ## Output Format
 
@@ -420,21 +424,20 @@ The tool searches for 24 DNA motif patterns (8 attR/cattR + 16 attL/cattL) repre
 
 ```
 results/
-├── ambiguous_att_sites.tsv # collates extraction limited genomes that may be of interest
-├── att_sites/              # att site locations (one TSV per genome)
+├── ambiguous_att_sites.tsv    # Collates extraction-limited genomes that may be of interest
+├── att_sites/                 # att site locations (one TSV per genome)
 │   └── *.tsv
-├── sccmec/                 # Extracted SCC element FASTAs
+├── sccmec/                    # Extracted SCC element FASTAs
 │   └── *_SCCmec.fasta
-├── typing/                 # Typing results for extracted + whole genomes
-│   └── *.tsv
-├── extraction_report.tsv   # Per-genome extraction status and coordinates
-├── typing_results.tsv      # Gene-level typing for all inputs
-└── sccmec_unified_report.tsv  # Merged extraction + typing report
+├── sccmec_unified_report.tsv  # Full diagnostic report (extraction + typing merged)
+└── sccmec_summary.tsv         # Concise one-line-per-genome summary
 ```
 
 ### Unified Report
 
-The unified report (`sccmec_unified_report.tsv`) includes per-genome columns for extraction status, *att* site coordinates, element size, *mec*/*ccr* gene content, allotype classifications and typing method e.g. `sccmec` or `wgs`.
+The unified report (`sccmec_unified_report.tsv`) includes per-genome columns for extraction status, *att* site coordinates, element size, *mec*/*ccr* gene content, allotype classifications, *mec* complex class, *ccr* complex type, SCC*mec* type, *mec* context (location of *mec* genes relative to the extracted element) and typing source (`sccmec` or `wgs`).
+
+A concise summary report (`sccmec_summary.tsv`) is also generated for quick screening of large datasets.
 
 ## Troubleshooting
 
@@ -485,12 +488,10 @@ The tools provide informative warning messages to help diagnose issues:
 
 ## Citation
 
-If you use SCC*mec*Extractor in your research, please cite this repository:
+If you use SCC*mec*Extractor in your research, please cite the bioRxiv Preprint::
 
 ```
-MacFadyen, A.C. SCCmecExtractor: A toolkit for extracting and typing SCCmec elements
-from Staphylococcus and Mammaliicoccus genomes.
-GitHub repository: https://github.com/AlisonMacFadyen/SCCmecExtractor
+MacFadyen, A.C. SCCmecExtractor: A tool for extracting Staphylococcal Cassette Chromosome elements from Whole Genome Sequences. bioRxiv 2026.03.31.715619; doi: https://doi.org/10.64898/2026.03.31.715619
 ```
 
 ## License

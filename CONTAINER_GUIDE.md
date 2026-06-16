@@ -20,11 +20,11 @@ SCCmecExtractor/
 │       ├── pipeline.py
 │       ├── locate_att_sites.py
 │       ├── extract_SCCmec.py
-│       ├── type_sccmec.py
+│       ├── sccmec_type_classification.py
 │       ├── report_sccmec.py
 │       ├── blast_utils.py
 │       └── data/
-│           ├── mec_genes_allotypes.fasta
+│           ├── mec_class_reference.fasta
 │           ├── ccr_genes.fasta
 │           └── rlmH.fasta
 ├── tests/
@@ -138,7 +138,7 @@ docker run --rm \
   alisonmacfadyen/sccmecextractor:latest \
   sccmec-extract -f genome.fna -a att_sites.tsv -s sccmec_output -r extraction_report.tsv
 
-# Gene level typing extracted elements
+# Type extracted elements (mec complex class, ccr complex type, SCCmec type)
 docker run --rm \
   -v $PWD:/work \
   alisonmacfadyen/sccmecextractor:latest \
@@ -237,7 +237,7 @@ singularity exec \
   sccmecextractor.sif \
   sccmec-extract -f genome.fna -a att_sites.tsv -s sccmec_output -r extraction_report.tsv
 
-# Gene level typing of extracted elements
+# Type extracted elements (mec complex class, ccr complex type, SCCmec type)
 singularity exec \
   --bind $PWD:/work \
   sccmecextractor.sif \

@@ -18,12 +18,13 @@ from typing import Dict, List, Optional
 
 from sccmecextractor.locate_att_sites import AttSiteFinder
 from sccmecextractor.extract_SCCmec import SCCmecExtractor, ExtractionReport, AmbiguousHitReport, GenomeSequences
-from sccmecextractor.type_sccmec import SCCmecTyper, TYPING_HEADER
+from sccmecextractor.sccmec_type_classification import SCCmecTyper, TYPING_HEADER
 from sccmecextractor.report_sccmec import (
     read_tsv,
     normalise_typing_keys,
     merge_reports,
     write_unified_report,
+    write_summary_report,
 )
 
 
@@ -167,6 +168,44 @@ def _process_genome(
             _print(f" ERROR (extract): {e}", file=sys.stderr)
             result["status"] = "error_extract"
             return result
+
+        # --- Stage 3: Type ---
+        sccmec_fasta = os.path.join(sccmec_dir, f"{stem}_SCCmec.fasta")
+        if success and os.path.isfile(sccmec_fasta):
+            _print(" typing (sccmec)...", end="", file=sys.stderr, flush=True)
+            try:
+                typing_result = typer.type_file(sccmec_fasta)
+                result["typing_result"] = typing_result
+                result["typed_sccmec"] = True
+            except Exception as e:
+                _print(f" typing ERROR: {e}", end="", file=sys.stderr)
+
+            # WGS mec screen: detect mec genes anywhere in the genome
+            # (element typing only sees what's inside the extracted element)
+            _print(" wgs mec screen...", end="", file=sys.stderr, flush=True)
+            try:
+                wgs_typing = typer.type_file(
+                    fasta_path, db_prefix=genome_db_prefix,
+                )
+                result["wgs_typing_result"] = wgs_typing
+            except Exception as e:
+                _print(f" wgs screen ERROR: {e}", end="", file=sys.stderr)
+
+            result["extracted"] = True
+            result["success"] = True
+        else:
+            _print(" FAILED, typing (wgs)...", end="", file=sys.stderr, flush=True)
+            try:
+                typing_result = typer.type_file(
+                    fasta_path, db_prefix=genome_db_prefix,
+                )
+                result["typing_result"] = typing_result
+                result["typed_wgs"] = True
+            except Exception as e:
+                _print(f" typing ERROR: {e}", end="", file=sys.stderr)
+
+        _print(" done", file=sys.stderr)
+        return result
     finally:
         # Clean up shared BLAST DB
         if genome_db_prefix is not None:
@@ -176,30 +215,6 @@ def _process_genome(
                 os.rmdir(tmp_db_dir)
             except OSError:
                 pass
-
-    # --- Stage 3: Type ---
-    sccmec_fasta = os.path.join(sccmec_dir, f"{stem}_SCCmec.fasta")
-    if success and os.path.isfile(sccmec_fasta):
-        _print(" typing (sccmec)...", end="", file=sys.stderr, flush=True)
-        try:
-            typing_result = typer.type_file(sccmec_fasta)
-            result["typing_result"] = typing_result
-            result["typed_sccmec"] = True
-        except Exception as e:
-            _print(f" typing ERROR: {e}", end="", file=sys.stderr)
-        result["extracted"] = True
-        result["success"] = True
-    else:
-        _print(" FAILED, typing (wgs)...", end="", file=sys.stderr, flush=True)
-        try:
-            typing_result = typer.type_file(fasta_path)
-            result["typing_result"] = typing_result
-            result["typed_wgs"] = True
-        except Exception as e:
-            _print(f" typing ERROR: {e}", end="", file=sys.stderr)
-
-    _print(" done", file=sys.stderr)
-    return result
 
 
 def run_pipeline(
@@ -211,6 +226,8 @@ def run_pipeline(
     rlmh_ref: Optional[str] = None,
     composite: bool = False,
     threads: int = 1,
+    mec_ref: Optional[str] = None,
+    ccr_ref: Optional[str] = None,
 ) -> dict:
     """Run the full SCCmecExtractor pipeline on one or more genomes.
 
@@ -232,6 +249,14 @@ def run_pipeline(
         Extract to outermost boundary for composite elements.
     threads : int
         Number of parallel threads (default 1 = sequential).
+    mec_ref : str, optional
+        Custom mec gene reference FASTA for gene content detection.
+        When provided, mec typing uses this reference and mec complex
+        class / SCCmec type will not be assigned.
+    ccr_ref : str, optional
+        Custom ccr gene reference FASTA for gene content detection.
+        When provided, ccr typing uses this reference and ccr complex
+        type / SCCmec type will not be assigned.
 
     Returns
     -------
@@ -241,16 +266,19 @@ def run_pipeline(
     # Create output subdirectories
     att_dir = os.path.join(outdir, "att_sites")
     sccmec_dir = os.path.join(outdir, "sccmec")
-    typing_dir = os.path.join(outdir, "typing")
-    for d in (att_dir, sccmec_dir, typing_dir):
+    for d in (att_dir, sccmec_dir):
         os.makedirs(d, exist_ok=True)
 
-    extraction_report_file = os.path.join(outdir, "extraction_report.tsv")
+    # Intermediate files (removed after the unified report is built)
+    extraction_report_file = os.path.join(outdir, ".extraction_report.tsv")
+    typing_results_file = os.path.join(outdir, ".typing_results.tsv")
+    wgs_typing_results_file = os.path.join(outdir, ".wgs_typing_results.tsv")
+
+    # Persistent output files
     ambiguous_report_file = os.path.join(outdir, "ambiguous_att_sites.tsv")
-    typing_results_file = os.path.join(outdir, "typing_results.tsv")
 
     # Instantiate one typer (reuses BLAST runner across all genomes)
-    typer = SCCmecTyper()
+    typer = SCCmecTyper(mec_ref=mec_ref, ccr_ref=ccr_ref)
 
     total = len(fasta_files)
 
@@ -322,6 +350,7 @@ def run_pipeline(
 
     # Write typing results in input order (deterministic output)
     typing_header_written = False
+    wgs_header_written = False
     for result in results:
         if result and result.get("typing_result"):
             _write_typing_row(
@@ -330,6 +359,13 @@ def run_pipeline(
                 not typing_header_written,
             )
             typing_header_written = True
+        if result and result.get("wgs_typing_result"):
+            _write_typing_row(
+                result["wgs_typing_result"],
+                wgs_typing_results_file,
+                not wgs_header_written,
+            )
+            wgs_header_written = True
 
     # Tally results
     extracted_count = sum(1 for r in results if r and r.get("extracted"))
@@ -337,20 +373,36 @@ def run_pipeline(
     typed_sccmec = sum(1 for r in results if r and r.get("typed_sccmec"))
     typed_wgs = sum(1 for r in results if r and r.get("typed_wgs"))
 
-    # --- Stage 4: Unified report ---
+    # --- Stage 4: Reports ---
     unified_report_file = os.path.join(outdir, "sccmec_unified_report.tsv")
+    summary_report_file = os.path.join(outdir, "sccmec_summary.tsv")
+
+    # Load WGS typing results (genome-wide mec screen for extracted genomes)
+    wgs_typing_rows = {}
+    if os.path.isfile(wgs_typing_results_file):
+        wgs_typing_rows = read_tsv(wgs_typing_results_file)
 
     if os.path.isfile(extraction_report_file) and os.path.isfile(typing_results_file):
         extraction_rows = read_tsv(extraction_report_file)
         typing_rows = read_tsv(typing_results_file)
         typing_rows = normalise_typing_keys(typing_rows)
-        merged = merge_reports(extraction_rows, typing_rows)
+        merged = merge_reports(extraction_rows, typing_rows, wgs_typing_rows)
         write_unified_report(merged, unified_report_file)
+        write_summary_report(merged, summary_report_file)
     elif os.path.isfile(extraction_report_file):
         # Typing may have failed for all genomes; still produce a report
         extraction_rows = read_tsv(extraction_report_file)
-        merged = merge_reports(extraction_rows, {})
+        merged = merge_reports(extraction_rows, {}, wgs_typing_rows)
         write_unified_report(merged, unified_report_file)
+        write_summary_report(merged, summary_report_file)
+
+    # Clean up intermediate files
+    for tmp_file in (extraction_report_file, typing_results_file,
+                     wgs_typing_results_file):
+        try:
+            os.remove(tmp_file)
+        except OSError:
+            pass
 
     # Summary
     summary = {
@@ -366,7 +418,8 @@ def run_pipeline(
         f"  Extracted: {extracted_count} ({extracted_count/total*100:.1f}%)\n"
         f"  Failed: {failed_count} ({failed_count/total*100:.1f}%)\n"
         f"  Typed (SCCmec): {typed_sccmec}, Typed (WGS): {typed_wgs}\n"
-        f"Report: {unified_report_file}",
+        f"Summary: {summary_report_file}\n"
+        f"Full report: {unified_report_file}",
         file=sys.stderr,
     )
 
@@ -417,6 +470,22 @@ def main():
     parser.add_argument(
         "-t", "--threads", type=int, default=1,
         help="Number of parallel threads (default: 1 = sequential)",
+    )
+    parser.add_argument(
+        "--mec-ref",
+        help="Custom mec gene reference FASTA for gene content detection. "
+             "When provided, mec genes are detected using this reference "
+             "instead of the bundled database; mec complex class and SCCmec "
+             "type will not be assigned. ccr typing still uses the bundled "
+             "reference.",
+    )
+    parser.add_argument(
+        "--ccr-ref",
+        help="Custom ccr gene reference FASTA for gene content detection. "
+             "When provided, ccr genes are detected using this reference "
+             "instead of the bundled database; ccr complex type and SCCmec "
+             "type will not be assigned. mec typing still uses the bundled "
+             "reference.",
     )
     args = parser.parse_args()
 
@@ -480,6 +549,8 @@ def main():
         rlmh_ref=args.rlmh_ref,
         composite=args.composite,
         threads=args.threads,
+        mec_ref=args.mec_ref,
+        ccr_ref=args.ccr_ref,
     )
 
 
