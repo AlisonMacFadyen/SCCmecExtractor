@@ -488,12 +488,10 @@ The tools provide informative warning messages to help diagnose issues:
 
 ## Citation
 
-If you use SCC*mec*Extractor in your research, please cite this repository:
+If you use SCC*mec*Extractor in your research, please cite the bioRxiv Preprint::
 
 ```
-MacFadyen, A.C. SCCmecExtractor: A toolkit for extracting and typing SCCmec elements
-from Staphylococcus and Mammaliicoccus genomes.
-GitHub repository: https://github.com/AlisonMacFadyen/SCCmecExtractor
+MacFadyen, A.C. SCCmecExtractor: A tool for extracting Staphylococcal Cassette Chromosome elements from Whole Genome Sequences. bioRxiv 2026.03.31.715619; doi: https://doi.org/10.64898/2026.03.31.715619
 ```
 
 ## License
