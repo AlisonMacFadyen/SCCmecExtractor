@@ -550,6 +550,36 @@ class TestFindClosestCcr:
         result = SCCmecTyper.find_closest_ccr(mec, [])
         assert result == []
 
+    def test_mecC_used_when_no_mecA(self):
+        """mecC is used for proximity when mecA is absent."""
+        mec = [_make_gene_hit("mecC", contig="c1", start=5000, end=7000)]
+        ccr = [
+            _make_gene_hit("ccrA1", contig="c1", start=8000, end=9350),
+            _make_gene_hit("ccrB1", contig="c1", start=9400, end=10750),
+            _make_gene_hit("ccrC1", contig="c1", start=25000, end=26000),
+        ]
+        result = SCCmecTyper.find_closest_ccr(mec, ccr)
+        names = {r.gene_name for r in result}
+        assert "ccrA1" in names
+        assert "ccrC1" not in names
+
+    def test_mecA_preferred_over_mecC(self):
+        """When both mecA and mecC present, mecA is used for proximity."""
+        mec = [
+            _make_gene_hit("mecA", contig="c1", start=5000, end=7000),
+            _make_gene_hit("mecC", contig="c1", start=30000, end=32000),
+        ]
+        ccr = [
+            _make_gene_hit("ccrA2", contig="c1", start=8000, end=9350),
+            _make_gene_hit("ccrB2", contig="c1", start=9400, end=10750),
+            _make_gene_hit("ccrC1", contig="c1", start=31000, end=32000),
+        ]
+        result = SCCmecTyper.find_closest_ccr(mec, ccr)
+        names = {r.gene_name for r in result}
+        # ccrA2/ccrB2 are closest to mecA, not ccrC1 which is closest to mecC
+        assert "ccrA2" in names
+        assert "ccrC1" not in names
+
 
 # ---------------------------------------------------------------------------
 # TestGeneContentMode
