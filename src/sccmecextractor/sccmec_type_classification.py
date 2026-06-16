@@ -700,9 +700,12 @@ class SCCmecTyper:
     
     @staticmethod
     def find_closest_ccr(mec_results, ccr_results):
-        """Find the ccr gene(s) closest to mecA."""
-        # Find mecA location
+        """Find the ccr gene(s) closest to the primary mec gene (mecA or mecC)."""
+        # Find primary mec gene location — prefer mecA, fall back to mecC
         mec_hits = [r for r in mec_results if r.gene_name.startswith("mecA")]
+        if not mec_hits:
+            mec_hits = [r for r in mec_results
+                        if r.gene_name.startswith("mecC")]
         if not mec_hits or not ccr_results:
             return ccr_results  # fallback: return all
 
