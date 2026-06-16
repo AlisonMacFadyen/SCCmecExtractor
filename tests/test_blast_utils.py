@@ -268,7 +268,7 @@ class TestGetDefaultRef:
 
     def test_mec_ref_exists(self):
         """Bundled mec reference is accessible."""
-        with get_default_ref("mec_genes_allotypes.fasta") as path:
+        with get_default_ref("mec_class_reference.fasta") as path:
             assert path.exists()
             content = path.read_text()
             assert ">mecA" in content

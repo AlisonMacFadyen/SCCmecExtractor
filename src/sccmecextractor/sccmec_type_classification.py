@@ -2,8 +2,13 @@
 
 """SCCmec Type Classification by mec complex content and ccr gene presence using BLAST.
 
-Classifies extracted SCCmec sequences by identifying mec complex associated and ccr genes
+Assigns mec complex class (A-E), ccr complex type (1-22) and SCCmec type (I-XV)
 via BLAST against bundled reference databases.
+
+When custom --mec-ref or --ccr-ref references are provided, the tool operates
+in gene content detection mode for that side, reporting detected genes without
+class/complex/type assignment.  The other side still uses the bundled reference
+for full typing.
 """
 
 import argparse
@@ -324,7 +329,8 @@ TYPING_HEADER = [
     "ccr_identity",
     "ccr_locations",
     "ccr_complex_type",
-    "SCCmec_Type"
+    "SCCmec_Type",
+    "SCCmec_Type_secondary"
 ]
 
 class MecComplexLookup:
@@ -576,7 +582,20 @@ class SCCmecTypeLookup:
         return "novel_combination"
 
 class SCCmecTyper:
-    """Orchestrate BLAST-based SCCmec typing for mec and ccr gene content."""
+    """Orchestrate BLAST-based SCCmec typing for mec and ccr gene content.
+
+    Operating modes:
+
+    **Typing mode** (default, no custom refs):
+        Uses bundled mec_class_reference.fasta and ccr_genes.fasta to assign
+        mec complex class (A-E), ccr complex type (1-22) and SCCmec type (I-XV).
+
+    **Gene content mode** (custom --mec-ref and/or --ccr-ref):
+        When a custom reference is provided for one side, that side reports
+        gene content only (no class/complex assignment).  The other side
+        still uses the bundled reference for full typing.  When both custom
+        refs are provided, both sides report gene content only.
+    """
 
     def __init__(
         self,
@@ -587,20 +606,24 @@ class SCCmecTyper:
         self.ccr_ref = ccr_ref
         self.runner = BlastRunner()
 
+        # Track which sides use custom refs (gene content only)
+        self._custom_mec = mec_ref is not None
+        self._custom_ccr = ccr_ref is not None
+
         # Cache classifiers — ref FASTAs parsed once, reused for all genomes
         self._mec_classifier = self._create_mec_classifier()
         self._ccr_classifier = self._create_ccr_classifier()
 
     def _create_mec_classifier(self) -> MecClassifier:
         """Create a MecClassifier, handling default ref resolution."""
-        if self.mec_ref:
+        if self._custom_mec:
             return MecClassifier(self.mec_ref)
         with get_default_ref("mec_class_reference.fasta") as ref:
             return MecClassifier(str(ref))
 
     def _create_ccr_classifier(self) -> CcrClassifier:
         """Create a CcrClassifier, handling default ref resolution."""
-        if self.ccr_ref:
+        if self._custom_ccr:
             return CcrClassifier(self.ccr_ref)
         with get_default_ref("ccr_genes.fasta") as ref:
             return CcrClassifier(str(ref))
@@ -657,31 +680,23 @@ class SCCmecTyper:
     def _blast_ref(self, ref_type: str, db_prefix: str, tmp_dir: str):
         """BLAST a reference set against the SCCmec database."""
         if ref_type == "mec":
-            if self.mec_ref:
-                ref_path = self.mec_ref
-                results_file = self.runner.run_blastn(ref_path, db_prefix)
-                hits = parse_blast_output(results_file)
-                self.runner.cleanup_file(results_file)
-                return hits
-            else:
-                with get_default_ref("mec_class_reference.fasta") as ref:
-                    results_file = self.runner.run_blastn(str(ref), db_prefix)
-                    hits = parse_blast_output(results_file)
-                    self.runner.cleanup_file(results_file)
-                    return hits
+            ref_path = self.mec_ref
+            default_name = "mec_class_reference.fasta"
         else:
-            if self.ccr_ref:
-                ref_path = self.ccr_ref
-                results_file = self.runner.run_blastn(ref_path, db_prefix)
+            ref_path = self.ccr_ref
+            default_name = "ccr_genes.fasta"
+
+        if ref_path:
+            results_file = self.runner.run_blastn(ref_path, db_prefix)
+            hits = parse_blast_output(results_file)
+            self.runner.cleanup_file(results_file)
+            return hits
+        else:
+            with get_default_ref(default_name) as ref:
+                results_file = self.runner.run_blastn(str(ref), db_prefix)
                 hits = parse_blast_output(results_file)
                 self.runner.cleanup_file(results_file)
                 return hits
-            else:
-                with get_default_ref("ccr_genes.fasta") as ref:
-                    results_file = self.runner.run_blastn(str(ref), db_prefix)
-                    hits = parse_blast_output(results_file)
-                    self.runner.cleanup_file(results_file)
-                    return hits
     
     @staticmethod
     def find_closest_ccr(mec_results, ccr_results):
@@ -722,13 +737,17 @@ class SCCmecTyper:
 
         return primary
 
-    @staticmethod
     def _format_result(
+        self,
         input_name: str,
         mec_results: List[GeneHit],
         ccr_results: List[GeneHit],
     ) -> dict:
-        """Format typing results into a dict for TSV output."""
+        """Format typing results into a dict for TSV output.
+
+        When a custom reference is used for one side, that side reports
+        gene content only (class/complex/type columns show '-').
+        """
         if mec_results:
             mec_genes = ";".join(
                 f"{r.gene_name}({r.classification})" for r in mec_results
@@ -761,14 +780,44 @@ class SCCmecTyper:
             ccr_identity = "-"
             ccr_locations = "-"
 
-        mec_class_type = MecComplexLookup.lookup(mec_results)
-        ccr_complex_type = CcrComplexLookup.lookup(ccr_results)
-        closest_ccr = SCCmecTyper.find_closest_ccr(mec_results, ccr_results)
-        primary_ccr_type = CcrComplexLookup.lookup(closest_ccr)
-        sccmec_type = SCCmecTypeLookup.lookup(mec_class_type, primary_ccr_type)
+        # Typing lookups — only when using bundled references
+        if self._custom_mec:
+            mec_class_type = "-"
+        else:
+            mec_class_type = MecComplexLookup.lookup(mec_results)
 
-        if ";" in ccr_complex_type:
-            sccmec_type += " (composite)"
+        if self._custom_ccr:
+            ccr_complex_type = "-"
+        else:
+            ccr_complex_type = CcrComplexLookup.lookup(ccr_results)
+            closest_ccr = SCCmecTyper.find_closest_ccr(mec_results, ccr_results)
+            primary_ccr_type = CcrComplexLookup.lookup(closest_ccr)
+
+        # SCCmec type requires both mec class and ccr complex from bundled refs
+        if self._custom_mec or self._custom_ccr:
+            sccmec_type = "-"
+            sccmec_type_secondary = "-"
+        else:
+            sccmec_type = SCCmecTypeLookup.lookup(mec_class_type, primary_ccr_type)
+
+            # Secondary type(s) from non-primary ccr complexes
+            if ";" in ccr_complex_type:
+                primary_ids = {id(r) for r in closest_ccr}
+                secondary_ccr = [r for r in ccr_results if id(r) not in primary_ids]
+                secondary_ccr_type = CcrComplexLookup.lookup(secondary_ccr)
+                secondary_types = []
+                if ";" in secondary_ccr_type:
+                    for part in secondary_ccr_type.split(";"):
+                        secondary_types.append(
+                            SCCmecTypeLookup.lookup(mec_class_type, part)
+                        )
+                else:
+                    secondary_types.append(
+                        SCCmecTypeLookup.lookup(mec_class_type, secondary_ccr_type)
+                    )
+                sccmec_type_secondary = ";".join(secondary_types)
+            else:
+                sccmec_type_secondary = "-"
 
         return {
             "Input_File": input_name,
@@ -782,7 +831,8 @@ class SCCmecTyper:
             "ccr_identity": ccr_identity,
             "ccr_locations": ccr_locations,
             "ccr_complex_type": ccr_complex_type,
-            "SCCmec_Type": sccmec_type
+            "SCCmec_Type": sccmec_type,
+            "SCCmec_Type_secondary": sccmec_type_secondary,
         }
 
 
@@ -813,7 +863,7 @@ def collect_input_files(paths: List[str]) -> List[str]:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Type extracted SCCmec sequences by mec and ccr gene content"
+        description="Type SCC elements by mec complex class (A-E), ccr complex type (1-22) and SCCmec type (I-XV)"
     )
     parser.add_argument(
         "-f",
@@ -830,11 +880,19 @@ def main():
     )
     parser.add_argument(
         "--mec-ref",
-        help="Custom mec gene reference FASTA (default: bundled)",
+        help="Custom mec gene reference FASTA for gene content detection. "
+             "When provided, mec genes are detected using this reference "
+             "instead of the bundled database; mec complex class and SCCmec "
+             "type will not be assigned. ccr typing still uses the bundled "
+             "reference.",
     )
     parser.add_argument(
         "--ccr-ref",
-        help="Custom ccr gene reference FASTA (default: bundled)",
+        help="Custom ccr gene reference FASTA for gene content detection. "
+             "When provided, ccr genes are detected using this reference "
+             "instead of the bundled database; ccr complex type and SCCmec "
+             "type will not be assigned. mec typing still uses the bundled "
+             "reference.",
     )
     args = parser.parse_args()
 
@@ -846,6 +904,16 @@ def main():
         return
 
     print(f"Found {len(input_files)} input file(s)")
+
+    # Report operating mode
+    if args.mec_ref and args.ccr_ref:
+        print("Mode: gene content detection (custom mec and ccr references)")
+    elif args.mec_ref:
+        print("Mode: custom mec gene detection + bundled ccr typing")
+    elif args.ccr_ref:
+        print("Mode: bundled mec typing + custom ccr gene detection")
+    else:
+        print("Mode: full SCCmec typing (mec class, ccr complex, SCCmec type)")
 
     # Create typer
     typer = SCCmecTyper(mec_ref=args.mec_ref, ccr_ref=args.ccr_ref)

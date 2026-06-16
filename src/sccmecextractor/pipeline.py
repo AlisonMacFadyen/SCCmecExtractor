@@ -226,6 +226,8 @@ def run_pipeline(
     rlmh_ref: Optional[str] = None,
     composite: bool = False,
     threads: int = 1,
+    mec_ref: Optional[str] = None,
+    ccr_ref: Optional[str] = None,
 ) -> dict:
     """Run the full SCCmecExtractor pipeline on one or more genomes.
 
@@ -247,6 +249,14 @@ def run_pipeline(
         Extract to outermost boundary for composite elements.
     threads : int
         Number of parallel threads (default 1 = sequential).
+    mec_ref : str, optional
+        Custom mec gene reference FASTA for gene content detection.
+        When provided, mec typing uses this reference and mec complex
+        class / SCCmec type will not be assigned.
+    ccr_ref : str, optional
+        Custom ccr gene reference FASTA for gene content detection.
+        When provided, ccr typing uses this reference and ccr complex
+        type / SCCmec type will not be assigned.
 
     Returns
     -------
@@ -268,7 +278,7 @@ def run_pipeline(
     ambiguous_report_file = os.path.join(outdir, "ambiguous_att_sites.tsv")
 
     # Instantiate one typer (reuses BLAST runner across all genomes)
-    typer = SCCmecTyper()
+    typer = SCCmecTyper(mec_ref=mec_ref, ccr_ref=ccr_ref)
 
     total = len(fasta_files)
 
@@ -461,6 +471,22 @@ def main():
         "-t", "--threads", type=int, default=1,
         help="Number of parallel threads (default: 1 = sequential)",
     )
+    parser.add_argument(
+        "--mec-ref",
+        help="Custom mec gene reference FASTA for gene content detection. "
+             "When provided, mec genes are detected using this reference "
+             "instead of the bundled database; mec complex class and SCCmec "
+             "type will not be assigned. ccr typing still uses the bundled "
+             "reference.",
+    )
+    parser.add_argument(
+        "--ccr-ref",
+        help="Custom ccr gene reference FASTA for gene content detection. "
+             "When provided, ccr genes are detected using this reference "
+             "instead of the bundled database; ccr complex type and SCCmec "
+             "type will not be assigned. mec typing still uses the bundled "
+             "reference.",
+    )
     args = parser.parse_args()
 
     # Resolve FASTA files from --fna or --fna-dir
@@ -523,6 +549,8 @@ def main():
         rlmh_ref=args.rlmh_ref,
         composite=args.composite,
         threads=args.threads,
+        mec_ref=args.mec_ref,
+        ccr_ref=args.ccr_ref,
     )
 
 

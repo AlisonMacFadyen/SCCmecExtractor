@@ -62,6 +62,7 @@ SUMMARY_HEADER = [
     "ccr_allotypes",
     "ccr_complex_type",
     "SCCmec_Type",
+    "SCCmec_Type_secondary",
     "typing_source",
     "element_type",
     "mec_context",
