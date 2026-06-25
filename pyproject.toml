@@ -47,6 +47,7 @@ sccmec-extract = "sccmecextractor.extract_SCCmec:main"
 sccmec-type = "sccmecextractor.sccmec_type_classification:main"
 sccmec-report = "sccmecextractor.report_sccmec:main"
 sccmec-pipeline = "sccmecextractor.pipeline:main"
+sccmec-hybrid = "sccmecextractor.reference_comparison:main"
 
 [project.urls]
 Homepage = "https://github.com/AlisonMacFadyen/SCCmecExtractor"

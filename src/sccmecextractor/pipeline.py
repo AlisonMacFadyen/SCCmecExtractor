@@ -19,6 +19,12 @@ from typing import Dict, List, Optional
 from sccmecextractor.locate_att_sites import AttSiteFinder
 from sccmecextractor.extract_SCCmec import SCCmecExtractor, ExtractionReport, AmbiguousHitReport, GenomeSequences
 from sccmecextractor.sccmec_type_classification import SCCmecTyper, TYPING_HEADER
+from sccmecextractor.reference_comparison import (
+    HybridTyper,
+    HYBRID_SUMMARY_HEADER,
+    classify_with_typing,
+    _extract_accession,
+)
 from sccmecextractor.report_sccmec import (
     read_tsv,
     normalise_typing_keys,
@@ -191,6 +197,12 @@ def _process_genome(
             except Exception as e:
                 _print(f" wgs screen ERROR: {e}", end="", file=sys.stderr)
 
+            # --- Stage 3b: Hybrid comparison ---
+            # Note: do NOT pass genome_db_prefix here — hybrid comparison
+            # must BLAST against the extracted element only, not the whole
+            # genome, to avoid hits outside the SCCmec region.
+            result["sccmec_fasta"] = sccmec_fasta
+
             result["extracted"] = True
             result["success"] = True
         else:
@@ -277,8 +289,9 @@ def run_pipeline(
     # Persistent output files
     ambiguous_report_file = os.path.join(outdir, "ambiguous_att_sites.tsv")
 
-    # Instantiate one typer (reuses BLAST runner across all genomes)
+    # Instantiate typers (reuse BLAST runners across all genomes)
     typer = SCCmecTyper(mec_ref=mec_ref, ccr_ref=ccr_ref)
+    hybrid_typer = HybridTyper()
 
     total = len(fasta_files)
 
@@ -376,6 +389,7 @@ def run_pipeline(
     # --- Stage 4: Reports ---
     unified_report_file = os.path.join(outdir, "sccmec_unified_report.tsv")
     summary_report_file = os.path.join(outdir, "sccmec_summary.tsv")
+    hybrid_report_file = os.path.join(outdir, "hybrid_summary.tsv")
 
     # Load WGS typing results (genome-wide mec screen for extracted genomes)
     wgs_typing_rows = {}
@@ -395,6 +409,42 @@ def run_pipeline(
         merged = merge_reports(extraction_rows, {}, wgs_typing_rows)
         write_unified_report(merged, unified_report_file)
         write_summary_report(merged, summary_report_file)
+
+    # --- Stage 4b: Batch hybrid comparison ---
+    # Collect extracted element FASTAs for batch BLAST
+    element_fastas = []
+    for result in results:
+        if result and result.get("sccmec_fasta"):
+            fasta = result["sccmec_fasta"]
+            if os.path.isfile(fasta):
+                element_fastas.append(fasta)
+
+    # Read ccr context from the summary report for classification
+    typing_context = {}
+    if os.path.isfile(summary_report_file):
+        from sccmecextractor.reference_comparison import read_typing_report
+        typing_context = read_typing_report(summary_report_file)
+
+    if element_fastas:
+        print(
+            f"\nHybrid comparison: {len(element_fastas)} elements "
+            f"(batch BLAST)...",
+            end="", file=sys.stderr, flush=True,
+        )
+        hybrid_results = hybrid_typer.type_batch(
+            element_fastas, typing_context=typing_context
+        )
+        print(" done", file=sys.stderr)
+
+        with open(hybrid_report_file, "w") as hf:
+            hf.write("\t".join(HYBRID_SUMMARY_HEADER) + "\n")
+            for summary_row, _detail in hybrid_results:
+                hf.write(
+                    "\t".join(
+                        str(summary_row[c]) for c in HYBRID_SUMMARY_HEADER
+                    )
+                    + "\n"
+                )
 
     # Clean up intermediate files
     for tmp_file in (extraction_report_file, typing_results_file,
@@ -419,7 +469,8 @@ def run_pipeline(
         f"  Failed: {failed_count} ({failed_count/total*100:.1f}%)\n"
         f"  Typed (SCCmec): {typed_sccmec}, Typed (WGS): {typed_wgs}\n"
         f"Summary: {summary_report_file}\n"
-        f"Full report: {unified_report_file}",
+        f"Full report: {unified_report_file}\n"
+        f"Hybrid report: {hybrid_report_file}",
         file=sys.stderr,
     )
 
