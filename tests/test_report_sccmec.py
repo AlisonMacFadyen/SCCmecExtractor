@@ -14,6 +14,11 @@ from sccmecextractor.report_sccmec import (
     normalise_typing_keys,
     read_tsv,
     write_unified_report,
+    _extract_mec_resistance_gene,
+    _format_ccr,
+    _build_summary_row,
+    _MEC_GENE_PATTERN,
+    SUMMARY_HEADER,
 )
 
 
@@ -513,3 +518,241 @@ class TestCLI:
             text=True,
         )
         assert result.returncode != 0
+
+
+# ---------------------------------------------------------------------------
+# element_type classification bug fix tests
+# ---------------------------------------------------------------------------
+
+class TestElementTypeClassification:
+    """Ensure element_type uses only actual mec resistance genes, not IS/regulatory."""
+
+    def test_is431_alone_is_scc_not_sccmec(self):
+        """IS431 without a mec resistance gene should be SCC, not SCCmec."""
+        mec_genes = "IS431(full);IS431(novel_full)"
+        genes_list = mec_genes.split(";")
+        has_mec = any(_MEC_GENE_PATTERN.match(g.strip()) for g in genes_list)
+        assert has_mec is False
+
+    def test_mecA_is_sccmec(self):
+        mec_genes = "mecA(full);IS431(full)"
+        genes_list = mec_genes.split(";")
+        has_mec = any(_MEC_GENE_PATTERN.match(g.strip()) for g in genes_list)
+        assert has_mec is True
+
+    def test_mecC_is_sccmec(self):
+        mec_genes = "mecC(full);mecI(full)"
+        genes_list = mec_genes.split(";")
+        has_mec = any(_MEC_GENE_PATTERN.match(g.strip()) for g in genes_list)
+        assert has_mec is True
+
+    def test_mecR1_alone_is_not_sccmec(self):
+        mec_genes = "mecR1(full);IS1272(full)"
+        genes_list = mec_genes.split(";")
+        has_mec = any(_MEC_GENE_PATTERN.match(g.strip()) for g in genes_list)
+        assert has_mec is False
+
+    def test_empty_is_not_sccmec(self):
+        mec_genes = "-"
+        genes_list = mec_genes.split(";") if mec_genes != "-" else []
+        has_mec = any(_MEC_GENE_PATTERN.match(g.strip()) for g in genes_list)
+        assert has_mec is False
+
+    def test_mecA1_is_sccmec(self):
+        mec_genes = "mecA1(full)"
+        genes_list = mec_genes.split(";")
+        has_mec = any(_MEC_GENE_PATTERN.match(g.strip()) for g in genes_list)
+        assert has_mec is True
+
+    def test_mecD_is_sccmec(self):
+        mec_genes = "mecD(novel_full)"
+        genes_list = mec_genes.split(";")
+        has_mec = any(_MEC_GENE_PATTERN.match(g.strip()) for g in genes_list)
+        assert has_mec is True
+
+
+# ---------------------------------------------------------------------------
+# Summary helper tests
+# ---------------------------------------------------------------------------
+
+class TestExtractMecResistanceGene:
+    def test_mecA(self):
+        assert _extract_mec_resistance_gene("mecA(full);IS431(full)") == "mecA"
+
+    def test_mecC(self):
+        assert _extract_mec_resistance_gene("mecC(full);mecI(full)") == "mecC"
+
+    def test_is431_only(self):
+        assert _extract_mec_resistance_gene("IS431(full);IS431(novel_full)") == "-"
+
+    def test_no_genes(self):
+        assert _extract_mec_resistance_gene("-") == "-"
+
+    def test_empty(self):
+        assert _extract_mec_resistance_gene("") == "-"
+
+    def test_mecA1(self):
+        assert _extract_mec_resistance_gene("mecA1(full)") == "mecA1"
+
+    def test_mecA_with_regulatory(self):
+        assert _extract_mec_resistance_gene(
+            "mecA(full);mecR1(full);IS431(full);mecI(full)"
+        ) == "mecA"
+
+
+class TestFormatCcr:
+    def test_known_complex(self):
+        assert _format_ccr("2", "ccrA2;ccrB2") == "2"
+
+    def test_multiple_known(self):
+        assert _format_ccr("2;5", "ccrA2;ccrB2;ccrC1") == "2;5"
+
+    def test_novel_combination(self):
+        assert _format_ccr("novel_combination", "ccrA5;ccrB3") == "ccrA5;ccrB3"
+
+    def test_no_ccr(self):
+        assert _format_ccr("-", "-") == "-"
+
+    def test_empty(self):
+        assert _format_ccr("", "") == "-"
+
+
+class TestBuildSummaryRow:
+    def test_extracted_sccmec(self):
+        row = {
+            "Input_File": "GCF_001",
+            "Status": "extracted",
+            "mec_genes": "mecA(full);IS431(full)",
+            "mec_context": "in_element",
+            "ccr_complex_type": "2",
+            "ccr_allotypes": "ccrA2;ccrB2",
+            "SCCmec_Type": "IV",
+            "element_type": "SCCmec",
+            "typing_source": "sccmec",
+            "Failure_Reason": "-",
+        }
+        summary = _build_summary_row(row)
+        assert summary["mec_gene"] == "mecA"
+        assert summary["ccr"] == "2"
+        assert summary["element_type"] == "SCCmec"
+        assert summary["closest_ref"] == "-"
+        assert summary["hybrid_call"] == "-"
+
+    def test_extracted_scc_with_adjacent_mec(self):
+        row = {
+            "Input_File": "GCF_002",
+            "Status": "extracted",
+            "mec_genes": "IS431(full);IS431(novel_full)",
+            "mec_context": "mec_adjacent",
+            "ccr_complex_type": "5",
+            "ccr_allotypes": "ccrC1",
+            "SCCmec_Type": "not_typeable",
+            "element_type": "SCC",
+            "typing_source": "sccmec",
+            "Failure_Reason": "-",
+            "wgs_mec_genes": "mecA(full);IS1272(full)",
+        }
+        summary = _build_summary_row(row)
+        assert summary["mec_gene"] == "mecA"  # from WGS fallback
+        assert summary["mec_context"] == "mec_adjacent"
+        assert summary["element_type"] == "SCC"  # element itself is SCC
+
+    def test_wgs_typed(self):
+        row = {
+            "Input_File": "GCF_003",
+            "Status": "failed",
+            "mec_genes": "mecA(full)",
+            "mec_context": "-",
+            "ccr_complex_type": "2",
+            "ccr_allotypes": "ccrA2;ccrB2",
+            "SCCmec_Type": "IV",
+            "element_type": "-",
+            "typing_source": "wgs",
+            "Failure_Reason": "cross_contig",
+        }
+        summary = _build_summary_row(row)
+        assert summary["element_type"] == "WGS"
+        assert summary["mec_gene"] == "mecA"
+
+    def test_novel_ccr(self):
+        row = {
+            "Input_File": "GCF_004",
+            "Status": "extracted",
+            "mec_genes": "-",
+            "mec_context": "-",
+            "ccr_complex_type": "novel_combination",
+            "ccr_allotypes": "ccrA5;ccrB3",
+            "SCCmec_Type": "-",
+            "element_type": "SCC",
+            "typing_source": "sccmec",
+            "Failure_Reason": "-",
+        }
+        summary = _build_summary_row(row)
+        assert summary["ccr"] == "ccrA5;ccrB3"
+
+    def test_with_hybrid_info(self):
+        row = {
+            "Input_File": "GCF_005",
+            "Status": "extracted",
+            "mec_genes": "mecA(full)",
+            "mec_context": "in_element",
+            "ccr_complex_type": "2",
+            "ccr_allotypes": "ccrA2;ccrB2",
+            "SCCmec_Type": "IV",
+            "element_type": "SCCmec",
+            "typing_source": "sccmec",
+            "Failure_Reason": "-",
+        }
+        hybrid_info = {
+            "hybrid_best_match": "IV",
+            "hybrid_best_subtype": "IVa",
+            "hybrid_best_coverage": 94.9,
+            "hybrid_best_identity": 98.5,
+            "hybrid_call": "canonical",
+            "hybrid_components": "IV",
+        }
+        summary = _build_summary_row(row, hybrid_info)
+        assert summary["closest_ref"] == "IVa (94.9%)"
+        assert summary["hybrid_call"] == "canonical"
+
+    def test_with_hybrid_no_match(self):
+        row = {
+            "Input_File": "GCF_006",
+            "Status": "extracted",
+            "mec_genes": "-",
+            "mec_context": "-",
+            "ccr_complex_type": "5",
+            "ccr_allotypes": "ccrC1",
+            "SCCmec_Type": "-",
+            "element_type": "SCC",
+            "typing_source": "sccmec",
+            "Failure_Reason": "-",
+        }
+        hybrid_info = {
+            "hybrid_best_match": "-",
+            "hybrid_best_subtype": "-",
+            "hybrid_best_coverage": "-",
+            "hybrid_best_identity": "-",
+            "hybrid_call": "no_match",
+            "hybrid_components": "-",
+        }
+        summary = _build_summary_row(row, hybrid_info)
+        assert summary["closest_ref"] == "-"
+        assert summary["hybrid_call"] == "no_match"
+
+    def test_summary_has_all_headers(self):
+        row = {
+            "Input_File": "GCF_007",
+            "Status": "extracted",
+            "mec_genes": "mecA(full)",
+            "mec_context": "in_element",
+            "ccr_complex_type": "2",
+            "ccr_allotypes": "ccrA2;ccrB2",
+            "SCCmec_Type": "IV",
+            "element_type": "SCCmec",
+            "typing_source": "sccmec",
+            "Failure_Reason": "-",
+        }
+        summary = _build_summary_row(row)
+        for col in SUMMARY_HEADER:
+            assert col in summary

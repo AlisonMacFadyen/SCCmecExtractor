@@ -51,30 +51,125 @@ UNIFIED_HEADER = (
     + WGS_MEC_COLS
 )
 
-# Concise summary report header
+# Concise summary report header (user-facing, simplified)
 SUMMARY_HEADER = [
     "Input_File",
     "Status",
-    "Element_Size_bp",
-    "Is_Composite",
-    "mec_genes",
-    "mec_class_type",
-    "ccr_allotypes",
-    "ccr_complex_type",
-    "SCCmec_Type",
-    "SCCmec_Type_secondary",
-    "typing_source",
-    "element_type",
+    "mec_gene",
     "mec_context",
+    "ccr",
+    "SCCmec_Type",
+    "closest_ref",
+    "hybrid_call",
+    "element_type",
     "Failure_Reason",
-    "Notes",
 ]
 
 # Actual mec resistance genes (not IS elements or regulatory genes)
 _MEC_GENE_PATTERN = re.compile(r"^(mecA|mecB|mecC|mecA1|mecA2|mecD)\(")
+# Extract just the gene name from e.g. "mecA(full)" -> "mecA"
+_GENE_NAME_PATTERN = re.compile(r"^([^(]+)\(")
 
 # Adjacency threshold in bp
 _ADJACENT_THRESHOLD = 50_000
+
+
+def _extract_mec_resistance_gene(mec_genes_str: str) -> str:
+    """Extract the primary mec resistance gene name from the mec_genes field.
+
+    Returns the gene name (e.g. "mecA", "mecC") or "-" if no resistance
+    gene is present.  Only considers actual resistance genes, not IS
+    elements or regulatory genes.
+    """
+    if mec_genes_str == "-" or not mec_genes_str:
+        return "-"
+    for gene in mec_genes_str.split(";"):
+        gene = gene.strip()
+        if _MEC_GENE_PATTERN.match(gene):
+            m = _GENE_NAME_PATTERN.match(gene)
+            if m:
+                return m.group(1)
+    return "-"
+
+
+def _format_ccr(ccr_complex_type: str, ccr_allotypes: str) -> str:
+    """Format ccr information for the simplified summary.
+
+    Returns the ccr complex type number(s) if known (e.g. "2", "2;5"),
+    or the ccr allotype names for novel combinations (e.g. "ccrA5;ccrB3"),
+    or "-" if no ccr detected.
+    """
+    if ccr_complex_type == "-" or not ccr_complex_type:
+        return "-"
+    # If all parts are numeric or known, return the complex type
+    parts = [p.strip() for p in ccr_complex_type.split(";")]
+    has_novel = any("novel" in p.lower() for p in parts)
+    if not has_novel:
+        return ccr_complex_type
+    # Novel combination — return the allotype names instead
+    if ccr_allotypes and ccr_allotypes != "-":
+        return ccr_allotypes
+    return ccr_complex_type
+
+
+def _build_summary_row(row: dict, hybrid_info: dict = None) -> dict:
+    """Build a simplified summary row from a full merged row.
+
+    Parameters
+    ----------
+    row : dict
+        A merged report row (from merge_reports).
+    hybrid_info : dict, optional
+        Hybrid summary dict for this element (from HybridTyper),
+        keyed by HYBRID_SUMMARY_HEADER columns.
+    """
+    mec_genes = row.get("mec_genes", "-")
+    mec_gene = _extract_mec_resistance_gene(mec_genes)
+
+    # For failed genomes with WGS typing, check WGS mec genes too
+    if mec_gene == "-":
+        wgs_mec = row.get("wgs_mec_genes", "-")
+        wgs_gene = _extract_mec_resistance_gene(wgs_mec)
+        if wgs_gene != "-":
+            mec_gene = wgs_gene
+
+    ccr = _format_ccr(
+        row.get("ccr_complex_type", "-"),
+        row.get("ccr_allotypes", "-"),
+    )
+
+    # element_type reflects typing source: SCC/SCCmec for extracted, WGS for non-extracted
+    status = row.get("Status", "-")
+    element_type = row.get("element_type", "-")
+    typing_source = row.get("typing_source", "-")
+    if typing_source == "wgs":
+        element_type = "WGS"
+
+    # Closest reference match from hybrid comparison
+    if hybrid_info:
+        best = hybrid_info.get("hybrid_best_subtype", "-")
+        coverage = hybrid_info.get("hybrid_best_coverage", "-")
+        if best != "-" and coverage != "-":
+            closest_ref = f"{best} ({coverage}%)"
+        else:
+            closest_ref = "-"
+        hybrid_call = hybrid_info.get("hybrid_call", "-")
+    else:
+        closest_ref = "-"
+        hybrid_call = "-"
+
+    return {
+        "Input_File": row.get("Input_File", "-"),
+        "Status": status,
+        "mec_gene": mec_gene,
+        "mec_context": row.get("mec_context", "-"),
+        "ccr": ccr,
+        "SCCmec_Type": row.get("SCCmec_Type", "-"),
+        "closest_ref": closest_ref,
+        "hybrid_call": hybrid_call,
+        "element_type": element_type,
+        "Failure_Reason": row.get("Failure_Reason", "-"),
+    }
 
 
 def read_tsv(filepath, key_column="Input_File"):
@@ -276,10 +371,16 @@ def merge_reports(extraction_rows, typing_rows, wgs_typing_rows=None):
             row["typing_source"] = "-"
 
         # Classify element type based on extraction + typing
+        # Only actual mec resistance genes (mecA, mecB, mecC, etc.) make
+        # an element SCCmec — IS elements and regulatory genes alone do not.
         status = ext.get("Status", "-")
         if status in _EXTRACTED_STATUSES:
             mec = row.get("mec_genes", "-")
-            row["element_type"] = "SCCmec" if mec != "-" else "SCC"
+            mec_genes_list = mec.split(";") if mec != "-" else []
+            has_mec_resistance = any(
+                _MEC_GENE_PATTERN.match(g.strip()) for g in mec_genes_list
+            )
+            row["element_type"] = "SCCmec" if has_mec_resistance else "SCC"
 
             # Determine mec_context and WGS mec data
             wgs = wgs_typing_rows.get(key)
@@ -311,14 +412,37 @@ def write_unified_report(merged, outfile):
         writer.writerows(merged)
 
 
-def write_summary_report(merged, outfile):
-    """Write the concise summary report as a TSV file."""
+def write_summary_report(merged, outfile, hybrid_results=None):
+    """Write the concise, user-facing summary report as a TSV file.
+
+    Parameters
+    ----------
+    merged : list of dict
+        Rows from merge_reports.
+    outfile : str
+        Path to the output TSV.
+    hybrid_results : dict, optional
+        Keyed by element_id (e.g. "GCF_001_SCCmec"), values are hybrid
+        summary dicts from HybridTyper.
+    """
+    hybrid_results = hybrid_results or {}
+    summary_rows = []
+    for row in merged:
+        # Match hybrid results by Input_File + suffix
+        key = row.get("Input_File", "")
+        # Try common suffixes
+        hybrid_info = (
+            hybrid_results.get(f"{key}_SCCmec")
+            or hybrid_results.get(f"{key}_SCC")
+            or hybrid_results.get(key)
+        )
+        summary_rows.append(_build_summary_row(row, hybrid_info))
     with open(outfile, "w", newline="") as fh:
         writer = csv.DictWriter(
             fh, fieldnames=SUMMARY_HEADER, delimiter="\t", extrasaction="ignore"
         )
         writer.writeheader()
-        writer.writerows(merged)
+        writer.writerows(summary_rows)
 
 
 def main():

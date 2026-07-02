@@ -520,11 +520,13 @@ class SCCmecExtractor:
     def __init__(self, fasta_file: str, gff3_file: str = None, tsv_file: str = "",
                  composite: bool = False, blast_rlmh: bool = False,
                  rlmh_ref: str = None, rlmh_positions=None,
-                 genome_sequences=None, genome_db_prefix: str = None):
+                 genome_sequences=None, genome_db_prefix: str = None,
+                 min_ccr_identity: float = None):
         self.fasta_file = fasta_file
         self.target_file = self._get_input_filename(fasta_file)
         self.composite = composite
         self._genome_db_prefix = genome_db_prefix
+        self._min_ccr_identity = min_ccr_identity if min_ccr_identity is not None else 70.0
 
         # Initialise component objects
         self.genome = genome_sequences if genome_sequences is not None else GenomeSequences(fasta_file)
@@ -653,9 +655,9 @@ class SCCmecExtractor:
 
                 runner.cleanup_file(results_file)
 
-            # Filter hits: 70% identity (novel threshold), 75% coverage
-            filtered = filter_hits(hits, min_pident=70.0, min_coverage=0.75,
-                                   ref_lengths=ref_lengths)
+            # Filter hits by identity (default 70%, configurable) and 75% coverage
+            filtered = filter_hits(hits, min_pident=self._min_ccr_identity,
+                                   min_coverage=0.75, ref_lengths=ref_lengths)
 
             # Check which hits are on our contig and within the region
             ccr_in_region = set()
@@ -717,8 +719,8 @@ class SCCmecExtractor:
 
                 runner.cleanup_file(results_file)
 
-            filtered = filter_hits(hits, min_pident=70.0, min_coverage=0.75,
-                                   ref_lengths=ref_lengths)
+            filtered = filter_hits(hits, min_pident=self._min_ccr_identity,
+                                   min_coverage=0.75, ref_lengths=ref_lengths)
 
             ccr_types = set()
             for hit in filtered:

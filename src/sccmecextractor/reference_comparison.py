@@ -103,7 +103,7 @@ _REF_FILENAME = "sccmec_references.fasta"
 # ---------------------------------------------------------------------------
 
 def read_typing_report(filepath: str) -> Dict[str, dict]:
-    """Read a sccmec_summary.tsv and return per-element typing context.
+    """Read a sccmec report (unified or full summary) and return per-element typing context.
 
     Keyed by Input_File (accession).  For each element, extracts:
         - ccr_complex_type: e.g. "2", "2;5", "-"

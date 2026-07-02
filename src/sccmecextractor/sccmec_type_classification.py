@@ -134,19 +134,24 @@ class CcrClassifier:
     """Classify ccr gene hits from BLAST results.
 
     Thresholds:
-        - Confirmed full: >=85% identity AND >=90% coverage
-        - Confirmed partial: >=85% identity AND >=75% coverage
-        - Novel full: 70-84.4% identity AND >=90% coverage
-        - Novel partial: 70-84.4% identity AND >=75% coverage
+        - Confirmed full: >=84.5% identity AND >=90% coverage
+        - Confirmed partial: >=84.5% identity AND >=75% coverage
+        - Novel full: novel_pident to 84.4% identity AND >=90% coverage
+        - Novel partial: novel_pident to 84.4% identity AND >=75% coverage
+
+    The default novel_pident (70.0%) can be overridden via the
+    ``--min-ccr-identity`` CLI flag to accommodate highly divergent
+    ccr genes (IWG-SCC defines novel ccr genes down to 50% identity).
     """
 
     CONFIRMED_PIDENT = 84.5
-    NOVEL_PIDENT = 70.0
+    DEFAULT_NOVEL_PIDENT = 70.0
     FULL_COVERAGE = 0.90
     MIN_COVERAGE = 0.75
 
-    def __init__(self, ref_fasta: str):
+    def __init__(self, ref_fasta: str, novel_pident: float = None):
         self.ref_lengths = self._get_ref_lengths(ref_fasta)
+        self.NOVEL_PIDENT = novel_pident if novel_pident is not None else self.DEFAULT_NOVEL_PIDENT
 
     @staticmethod
     def _get_ref_lengths(fasta_path: str) -> Dict[str, int]:
@@ -324,6 +329,7 @@ TYPING_HEADER = [
     "mec_coverage",
     "mec_locations",
     "mec_class_type",
+    "mec_class_notes",
     "ccr_genes",
     "ccr_allotypes",
     "ccr_identity",
@@ -394,6 +400,7 @@ class MecComplexLookup:
         """Find the primary mecA hit (highest coverage, then identity).
 
         Returns the best mecA GeneHit, or None if no mecA detected.
+        Excludes mecA1/mecA2 (chromosomal in Mammaliicoccus).
         """
         mec_hits = [r for r in mec_results if r.gene_name.startswith("mecA")
                      and not r.gene_name.startswith("mecA1")
@@ -402,30 +409,55 @@ class MecComplexLookup:
             return None
         return max(mec_hits, key=lambda r: (r.coverage, r.pident))
 
+    @staticmethod
+    def _find_primary_mecc(mec_results):
+        """Find the primary mecC hit (highest coverage, then identity).
+
+        Returns the best mecC/mecC1/mecC2/mecC3 GeneHit, or None.
+        """
+        mec_hits = [r for r in mec_results if r.gene_name.startswith("mecC")]
+        if not mec_hits:
+            return None
+        return max(mec_hits, key=lambda r: (r.coverage, r.pident))
+
+    @classmethod
+    def _find_primary_mec(cls, mec_results):
+        """Find the primary mec resistance gene (mecA or mecC).
+
+        Prefers mecA; falls back to mecC for Class E elements.
+        Returns the best GeneHit, or None.
+        """
+        meca = cls._find_primary_meca(mec_results)
+        if meca is not None:
+            return meca
+        return cls._find_primary_mecc(mec_results)
+
     @classmethod
     def _is_near_meca(cls, mec_results, gene_name, threshold=None):
-        """Check whether any hit for *gene_name* is within *threshold* bp of mecA.
+        """Check whether any hit for *gene_name* is within *threshold* bp of
+        the primary mec gene (mecA or mecC).
 
-        Only considers hits on the same contig as mecA.  The distance is
-        measured as the gap between the two genes (not centre-to-centre).
+        Only considers hits on the same contig.  The distance is measured
+        as the gap between the two genes (not centre-to-centre).
 
         Returns True if at least one hit is within threshold.
         """
         if threshold is None:
             threshold = cls.IS_PROXIMITY_THRESHOLD
 
-        meca = cls._find_primary_meca(mec_results)
-        if meca is None:
+        primary = cls._find_primary_mec(mec_results)
+        if primary is None:
             return False
 
         for r in mec_results:
-            if r.gene_name != gene_name or r.contig != meca.contig:
+            base_name = r.gene_name.split("_")[0]
+            if base_name != gene_name or r.contig != primary.contig:
                 continue
             # Gap between the two genes
-            if r.end < meca.start:
-                dist = meca.start - r.end
-            elif r.start > meca.end:
-                dist = r.start - meca.end
+            if r.end < primary.start:
+                dist = primary.start - r.end
+            elif r.start > primary.end:
+                dist = r.start - primary.end
             else:
                 dist = 0  # overlapping
             if dist <= threshold:
@@ -476,6 +508,46 @@ class MecComplexLookup:
         else:
             return "C2"
 
+    # Expected IWG-SCC components per class (for notes generation)
+    _EXPECTED_COMPONENTS = {
+        "A":  {"mecA", "mecR1", "mecI", "IS431"},
+        "B":  {"mecA", "mecR1", "IS1272", "IS431"},
+        "C1": {"mecA", "mecR1", "IS431"},
+        "C2": {"mecA", "mecR1", "IS431"},
+        "D":  {"mecA", "mecR1", "IS431"},
+        "E":  {"mecC", "mecR1", "mecI", "blaZ"},
+    }
+
+    # Genes that require proximity to mecA/mecC to be counted as part
+    # of the mec complex.  IS elements can occur elsewhere as transposase
+    # copies; blaZ is commonly carried on plasmids or Tn552; mecR1 and
+    # mecI could theoretically be remnants from other elements.
+    _PROXIMITY_GENES = {"IS1272", "IS431", "blaZ", "mecR1", "mecI"}
+
+    @classmethod
+    def _build_detected_set(cls, mec_results):
+        """Build the set of detected gene base names with proximity checks.
+
+        Resistance genes (mecA, mecC, etc.) are included genome-wide.
+        Structural and regulatory genes (IS elements, blaZ, mecR1, mecI)
+        are only included when within ``IS_PROXIMITY_THRESHOLD`` bp of
+        the primary mec gene on the same contig.
+
+        Returns the detected set, reusable by both lookup() and generate_notes().
+        """
+        detected = set()
+        for r in mec_results:
+            base_name = r.gene_name.split("_")[0]
+            if base_name in cls._PROXIMITY_GENES:
+                continue  # handled below via proximity check
+            detected.add(base_name)
+
+        for gene in cls._PROXIMITY_GENES:
+            if cls._is_near_meca(mec_results, gene):
+                detected.add(gene)
+
+        return detected
+
     @classmethod
     def lookup(cls, mec_results: List[GeneHit]) -> str:
         """Classify mec complex from detected gene content near mecA.
@@ -506,20 +578,7 @@ class MecComplexLookup:
         if not any(r.gene_name in mec_genes_list for r in mec_results):
             return "-"
 
-        # Build detected-gene set with proximity validation for IS elements.
-        # Resistance genes and regulatory genes are included genome-wide;
-        # IS elements require proximity to mecA.
-        detected = set()
-        for r in mec_results:
-            base_name = r.gene_name.split("_")[0]
-            if base_name in ("IS1272", "IS431"):
-                continue  # handled below via proximity check
-            detected.add(base_name)
-
-        if cls._is_near_meca(mec_results, "IS1272"):
-            detected.add("IS1272")
-        if cls._is_near_meca(mec_results, "IS431"):
-            detected.add("IS431")
+        detected = cls._build_detected_set(mec_results)
 
         for rule in cls._MEC_COMPLEX_RULES:
             has_required = rule["requires"].issubset(detected)
@@ -534,6 +593,48 @@ class MecComplexLookup:
                 else:
                     return rule["class"]
         return "not_typeable"
+
+    @classmethod
+    def generate_notes(cls, mec_class: str, mec_results: List[GeneHit]) -> str:
+        """Generate notes about missing or unexpected components for the assigned class.
+
+        Compares detected genes against IWG-SCC expected components and
+        flags any deviations.
+
+        Returns
+        -------
+        str
+            Semicolon-separated notes, or "-" if no deviations.
+        """
+        if mec_class in ("-", "not_typeable"):
+            return "-"
+
+        expected = cls._EXPECTED_COMPONENTS.get(mec_class)
+        if expected is None:
+            return "-"
+
+        detected = cls._build_detected_set(mec_results)
+        notes = []
+
+        for gene in sorted(expected):
+            if gene not in detected:
+                notes.append(f"{gene} absent")
+
+        # Check for partial/truncated mecR1 specifically (only proximal hits)
+        if "mecR1" in expected and "mecR1" in detected:
+            meca = cls._find_primary_meca(mec_results)
+            if meca:
+                mecr1_hits = [
+                    r for r in mec_results
+                    if r.gene_name.startswith("mecR1")
+                    and r.contig == meca.contig
+                ]
+                if mecr1_hits:
+                    best = max(mecr1_hits, key=lambda r: r.coverage)
+                    if best.coverage < 90.0:
+                        notes.append("mecR1 truncated")
+
+        return ";".join(notes) if notes else "-"
 
 
 class SCCmecTypeLookup:
@@ -601,9 +702,11 @@ class SCCmecTyper:
         self,
         mec_ref: Optional[str] = None,
         ccr_ref: Optional[str] = None,
+        min_ccr_identity: float = None,
     ):
         self.mec_ref = mec_ref
         self.ccr_ref = ccr_ref
+        self._min_ccr_identity = min_ccr_identity
         self.runner = BlastRunner()
 
         # Track which sides use custom refs (gene content only)
@@ -624,9 +727,9 @@ class SCCmecTyper:
     def _create_ccr_classifier(self) -> CcrClassifier:
         """Create a CcrClassifier, handling default ref resolution."""
         if self._custom_ccr:
-            return CcrClassifier(self.ccr_ref)
+            return CcrClassifier(self.ccr_ref, novel_pident=self._min_ccr_identity)
         with get_default_ref("ccr_genes.fasta") as ref:
-            return CcrClassifier(str(ref))
+            return CcrClassifier(str(ref), novel_pident=self._min_ccr_identity)
 
     def type_file(self, input_fasta: str, db_prefix: str = None) -> dict:
         """Type a single FASTA file (extracted element or whole genome).
@@ -786,8 +889,12 @@ class SCCmecTyper:
         # Typing lookups — only when using bundled references
         if self._custom_mec:
             mec_class_type = "-"
+            mec_class_notes = "-"
         else:
             mec_class_type = MecComplexLookup.lookup(mec_results)
+            mec_class_notes = MecComplexLookup.generate_notes(
+                mec_class_type, mec_results
+            )
 
         if self._custom_ccr:
             ccr_complex_type = "-"
@@ -829,6 +936,7 @@ class SCCmecTyper:
             "mec_coverage": mec_coverage,
             "mec_locations": mec_locations,
             "mec_class_type": mec_class_type,
+            "mec_class_notes": mec_class_notes,
             "ccr_genes": ccr_genes,
             "ccr_allotypes": ccr_allotypes,
             "ccr_identity": ccr_identity,
@@ -897,6 +1005,16 @@ def main():
              "type will not be assigned. mec typing still uses the bundled "
              "reference.",
     )
+    parser.add_argument(
+        "--min-ccr-identity",
+        type=float,
+        default=None,
+        help="Minimum percent identity for novel ccr gene detection "
+             "(default: 70%%). IWG-SCC defines novel ccr genes down to "
+             "50%% identity; lower this value to detect highly divergent "
+             "ccr genes at the risk of false positives from non-ccr "
+             "serine recombinases.",
+    )
     args = parser.parse_args()
 
     # Collect input files
@@ -919,7 +1037,11 @@ def main():
         print("Mode: full SCCmec typing (mec class, ccr complex, SCCmec type)")
 
     # Create typer
-    typer = SCCmecTyper(mec_ref=args.mec_ref, ccr_ref=args.ccr_ref)
+    typer = SCCmecTyper(
+        mec_ref=args.mec_ref,
+        ccr_ref=args.ccr_ref,
+        min_ccr_identity=args.min_ccr_identity,
+    )
 
     # Type each file
     with open(args.outfile, "w") as f:
