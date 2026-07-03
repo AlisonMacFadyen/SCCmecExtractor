@@ -149,7 +149,8 @@ def _process_genome(
             )
             all_sites = finder.find_all_sites()
             filtered_sites = finder.filter_sites(all_sites)
-            finder.write_results(filtered_sites, att_output)
+            if filtered_sites:
+                finder.write_results(filtered_sites, att_output)
         except Exception as e:
             _print(f" ERROR (locate): {e}", file=sys.stderr)
             result["status"] = "error_locate"

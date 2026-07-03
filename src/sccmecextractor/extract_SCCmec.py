@@ -328,7 +328,10 @@ class AttSiteCollection:
         """Parse TSV file to extract att sites for the target file."""
         sites = []
         found_entries = False
-        
+
+        if not os.path.isfile(self.tsv_file):
+            return sites
+
         with open(self.tsv_file, 'r') as tsv:
             next(tsv)  # Skip header
             for line in tsv:
