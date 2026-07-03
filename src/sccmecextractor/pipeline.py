@@ -90,6 +90,7 @@ def _process_genome(
     index: int,
     total: int,
     min_ccr_identity: float = None,
+    file_lock: Optional[threading.Lock] = None,
     print_lock: Optional[threading.Lock] = None,
 ) -> dict:
     """Process a single genome through stages 1-3.
@@ -169,10 +170,19 @@ def _process_genome(
                 genome_db_prefix=genome_db_prefix,
                 min_ccr_identity=min_ccr_identity,
             )
-            success = extractor.extract_sccmec(
-                sccmec_dir, report_file=extraction_report_file,
-                ambiguous_report_file=ambiguous_report_file,
-            )
+            # Use file lock when writing extraction/ambiguous reports to
+            # prevent interleaved writes from concurrent threads.
+            if file_lock is not None:
+                with file_lock:
+                    success = extractor.extract_sccmec(
+                        sccmec_dir, report_file=extraction_report_file,
+                        ambiguous_report_file=ambiguous_report_file,
+                    )
+            else:
+                success = extractor.extract_sccmec(
+                    sccmec_dir, report_file=extraction_report_file,
+                    ambiguous_report_file=ambiguous_report_file,
+                )
         except Exception as e:
             _print(f" ERROR (extract): {e}", file=sys.stderr)
             result["status"] = "error_extract"
@@ -309,6 +319,10 @@ def run_pipeline(
         with open(ambiguous_report_file, 'w') as f:
             f.write(AmbiguousHitReport.HEADER + "\n")
 
+    # File lock for thread-safe report writing (prevents interleaved
+    # rows on Linux/WSL where file appends are not atomic)
+    file_lock = threading.Lock() if threads > 1 else None
+
     # Common kwargs for _process_genome
     common_kwargs = dict(
         att_dir=att_dir,
@@ -317,6 +331,7 @@ def run_pipeline(
         ambiguous_report_file=ambiguous_report_file,
         typer=typer,
         gff_files=gff_files,
+        file_lock=file_lock,
         min_ccr_identity=min_ccr_identity,
         gff_dir=gff_dir,
         blast_rlmh=blast_rlmh,
