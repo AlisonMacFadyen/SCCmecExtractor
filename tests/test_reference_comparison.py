@@ -285,7 +285,7 @@ class TestClassifyHybrid:
         )
         assert summary["hybrid_call"] == "canonical"
         assert summary["hybrid_best_match"] == "I"
-        assert summary["hybrid_components"] == "I"
+        assert summary["hybrid_components"] == "Ia"
         assert len(detail) == 1
 
     def test_two_types_hybrid(self):
@@ -298,8 +298,8 @@ class TestClassifyHybrid:
             "test_element", 30000, profiles
         )
         assert summary["hybrid_call"] == "multi_type"
-        assert "IV" in summary["hybrid_components"]
-        assert "II" in summary["hybrid_components"]
+        assert "IVa" in summary["hybrid_components"]
+        assert "IIa" in summary["hybrid_components"]
         assert len(detail) == 2
 
     def test_two_types_overlapping_canonical(self):

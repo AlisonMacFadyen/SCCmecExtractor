@@ -587,7 +587,8 @@ class HybridTyper:
         # Primary type
         primary_name, primary_prof = ranked[0]
         claimed = list(primary_prof["element_footprint"])
-        hybrid_components = [primary_name]
+        component_types = [primary_name]
+        component_subtypes = [primary_prof["best_subtype"]]
         novel_bp_per_type = {primary_name: 0}
 
         # Check remaining types for novel coverage
@@ -603,17 +604,18 @@ class HybridTyper:
                 >= NOVEL_FRAC_THRESHOLD
             )
             if is_novel:
-                hybrid_components.append(type_name)
+                component_types.append(type_name)
+                component_subtypes.append(profile["best_subtype"])
                 claimed = self._merge_intervals(claimed + novel)
 
         # -- Classify using typing context --
-        raw_call = "multi_type" if len(hybrid_components) > 1 else "canonical"
+        raw_call = "multi_type" if len(component_types) > 1 else "canonical"
         hybrid_call = classify_with_typing(
-            raw_call, len(hybrid_components), typing_info
+            raw_call, len(component_types), typing_info
         )
 
         # -- Build summary dict --
-        secondary_name = hybrid_components[1] if len(hybrid_components) > 1 else "-"
+        secondary_name = component_types[1] if len(component_types) > 1 else "-"
         secondary_prof = type_profiles.get(secondary_name, {})
 
         summary = {
@@ -633,7 +635,7 @@ class HybridTyper:
                 "weighted_pident", "-"
             ),
             "hybrid_call": hybrid_call,
-            "hybrid_components": ";".join(hybrid_components),
+            "hybrid_components": ";".join(component_subtypes),
         }
 
         # -- Build detail rows (all types, for per-element detail files) --
