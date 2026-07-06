@@ -925,3 +925,116 @@ class TestPipelineCustomRefs:
         assert result.returncode == 0
         assert "--mec-ref" in result.stdout
         assert "--ccr-ref" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# MecComplexLookup.generate_notes tests
+# ---------------------------------------------------------------------------
+
+class TestMecClassNotes:
+    """Test mec complex notes generation for missing/unexpected components."""
+
+    @staticmethod
+    def _gene_hit(name, pident=99.0, coverage=100.0, contig="c1",
+                  start=1000, end=2000, strand="+"):
+        return GeneHit(
+            gene_name=name, pident=pident, coverage=coverage,
+            classification="full", strand=strand, contig=contig,
+            start=start, end=end,
+        )
+
+    def test_class_a_complete(self):
+        """Class A with all expected components → no notes."""
+        hits = [
+            self._gene_hit("mecA", start=5000, end=7000),
+            self._gene_hit("mecR1", start=3000, end=4800),
+            self._gene_hit("mecI", start=2500, end=2900),
+            self._gene_hit("IS431", start=7500, end=8300),
+        ]
+        notes = MecComplexLookup.generate_notes("A", hits)
+        assert notes == "-"
+
+    def test_class_a_missing_is431(self):
+        """Class A without IS431 → IS431 absent."""
+        hits = [
+            self._gene_hit("mecA", start=5000, end=7000),
+            self._gene_hit("mecR1", start=3000, end=4800),
+            self._gene_hit("mecI", start=2500, end=2900),
+        ]
+        notes = MecComplexLookup.generate_notes("A", hits)
+        assert "IS431 absent" in notes
+
+    def test_class_a_truncated_mecr1(self):
+        """Class A with truncated mecR1 → mecR1 truncated."""
+        hits = [
+            self._gene_hit("mecA", start=5000, end=7000),
+            self._gene_hit("mecR1", coverage=60.0, start=3000, end=4000),
+            self._gene_hit("mecI", start=2500, end=2900),
+            self._gene_hit("IS431", start=7500, end=8300),
+        ]
+        notes = MecComplexLookup.generate_notes("A", hits)
+        assert "mecR1 truncated" in notes
+
+    def test_class_a_missing_is431_and_mecr1(self):
+        """Class A without IS431 and mecR1 → both noted."""
+        hits = [
+            self._gene_hit("mecA", start=5000, end=7000),
+            self._gene_hit("mecI", start=2500, end=2900),
+        ]
+        notes = MecComplexLookup.generate_notes("A", hits)
+        assert "IS431 absent" in notes
+        assert "mecR1 absent" in notes
+
+    def test_class_b_complete(self):
+        """Class B with all expected components → no notes."""
+        hits = [
+            self._gene_hit("mecA", start=5000, end=7000),
+            self._gene_hit("mecR1", start=3000, end=4800),
+            self._gene_hit("IS1272", start=2000, end=3000),
+            self._gene_hit("IS431", start=7500, end=8300),
+        ]
+        notes = MecComplexLookup.generate_notes("B", hits)
+        assert notes == "-"
+
+    def test_class_b_missing_mecr1(self):
+        """Class B without mecR1 → mecR1 absent."""
+        hits = [
+            self._gene_hit("mecA", start=5000, end=7000),
+            self._gene_hit("IS1272", start=2000, end=3000),
+            self._gene_hit("IS431", start=7500, end=8300),
+        ]
+        notes = MecComplexLookup.generate_notes("B", hits)
+        assert "mecR1 absent" in notes
+
+    def test_class_e_missing_blaz(self):
+        """Class E without blaZ → blaZ absent."""
+        hits = [
+            self._gene_hit("mecC", start=5000, end=7000),
+            self._gene_hit("mecR1", start=3000, end=4800),
+            self._gene_hit("mecI", start=2500, end=2900),
+        ]
+        notes = MecComplexLookup.generate_notes("E", hits)
+        assert "blaZ absent" in notes
+
+    def test_class_e_complete(self):
+        """Class E with all expected components → no notes."""
+        hits = [
+            self._gene_hit("mecC", start=5000, end=7000),
+            self._gene_hit("mecR1", start=3000, end=4800),
+            self._gene_hit("mecI", start=2500, end=2900),
+            self._gene_hit("blaZ", start=1000, end=1800),
+        ]
+        notes = MecComplexLookup.generate_notes("E", hits)
+        assert notes == "-"
+
+    def test_not_typeable_returns_dash(self):
+        notes = MecComplexLookup.generate_notes("not_typeable", [])
+        assert notes == "-"
+
+    def test_no_mec_returns_dash(self):
+        notes = MecComplexLookup.generate_notes("-", [])
+        assert notes == "-"
+
+    def test_mec_class_notes_in_header(self):
+        """mec_class_notes should be in the TYPING_HEADER."""
+        assert "mec_class_notes" in TYPING_HEADER

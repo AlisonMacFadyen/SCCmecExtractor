@@ -19,6 +19,13 @@ from typing import Dict, List, Optional
 from sccmecextractor.locate_att_sites import AttSiteFinder
 from sccmecextractor.extract_SCCmec import SCCmecExtractor, ExtractionReport, AmbiguousHitReport, GenomeSequences
 from sccmecextractor.sccmec_type_classification import SCCmecTyper, TYPING_HEADER
+from sccmecextractor.reference_comparison import (
+    HybridTyper,
+    HYBRID_SUMMARY_HEADER,
+    HYBRID_DETAIL_HEADER,
+    classify_with_typing,
+    _extract_accession,
+)
 from sccmecextractor.report_sccmec import (
     read_tsv,
     normalise_typing_keys,
@@ -82,6 +89,8 @@ def _process_genome(
     composite: bool,
     index: int,
     total: int,
+    min_ccr_identity: float = None,
+    file_lock: Optional[threading.Lock] = None,
     print_lock: Optional[threading.Lock] = None,
 ) -> dict:
     """Process a single genome through stages 1-3.
@@ -140,7 +149,8 @@ def _process_genome(
             )
             all_sites = finder.find_all_sites()
             filtered_sites = finder.filter_sites(all_sites)
-            finder.write_results(filtered_sites, att_output)
+            if filtered_sites:
+                finder.write_results(filtered_sites, att_output)
         except Exception as e:
             _print(f" ERROR (locate): {e}", file=sys.stderr)
             result["status"] = "error_locate"
@@ -159,11 +169,21 @@ def _process_genome(
                 rlmh_positions=rlmh_positions,
                 genome_sequences=genome,
                 genome_db_prefix=genome_db_prefix,
+                min_ccr_identity=min_ccr_identity,
             )
-            success = extractor.extract_sccmec(
-                sccmec_dir, report_file=extraction_report_file,
-                ambiguous_report_file=ambiguous_report_file,
-            )
+            # Use file lock when writing extraction/ambiguous reports to
+            # prevent interleaved writes from concurrent threads.
+            if file_lock is not None:
+                with file_lock:
+                    success = extractor.extract_sccmec(
+                        sccmec_dir, report_file=extraction_report_file,
+                        ambiguous_report_file=ambiguous_report_file,
+                    )
+            else:
+                success = extractor.extract_sccmec(
+                    sccmec_dir, report_file=extraction_report_file,
+                    ambiguous_report_file=ambiguous_report_file,
+                )
         except Exception as e:
             _print(f" ERROR (extract): {e}", file=sys.stderr)
             result["status"] = "error_extract"
@@ -190,6 +210,12 @@ def _process_genome(
                 result["wgs_typing_result"] = wgs_typing
             except Exception as e:
                 _print(f" wgs screen ERROR: {e}", end="", file=sys.stderr)
+
+            # --- Stage 3b: Hybrid comparison ---
+            # Note: do NOT pass genome_db_prefix here — hybrid comparison
+            # must BLAST against the extracted element only, not the whole
+            # genome, to avoid hits outside the SCCmec region.
+            result["sccmec_fasta"] = sccmec_fasta
 
             result["extracted"] = True
             result["success"] = True
@@ -228,6 +254,8 @@ def run_pipeline(
     threads: int = 1,
     mec_ref: Optional[str] = None,
     ccr_ref: Optional[str] = None,
+    min_ccr_identity: float = None,
+    hybrid_detailed: bool = False,
 ) -> dict:
     """Run the full SCCmecExtractor pipeline on one or more genomes.
 
@@ -277,8 +305,10 @@ def run_pipeline(
     # Persistent output files
     ambiguous_report_file = os.path.join(outdir, "ambiguous_att_sites.tsv")
 
-    # Instantiate one typer (reuses BLAST runner across all genomes)
-    typer = SCCmecTyper(mec_ref=mec_ref, ccr_ref=ccr_ref)
+    # Instantiate typers (reuse BLAST runners across all genomes)
+    typer = SCCmecTyper(mec_ref=mec_ref, ccr_ref=ccr_ref,
+                        min_ccr_identity=min_ccr_identity)
+    hybrid_typer = HybridTyper()
 
     total = len(fasta_files)
 
@@ -290,6 +320,10 @@ def run_pipeline(
         with open(ambiguous_report_file, 'w') as f:
             f.write(AmbiguousHitReport.HEADER + "\n")
 
+    # File lock for thread-safe report writing (prevents interleaved
+    # rows on Linux/WSL where file appends are not atomic)
+    file_lock = threading.Lock() if threads > 1 else None
+
     # Common kwargs for _process_genome
     common_kwargs = dict(
         att_dir=att_dir,
@@ -298,6 +332,8 @@ def run_pipeline(
         ambiguous_report_file=ambiguous_report_file,
         typer=typer,
         gff_files=gff_files,
+        file_lock=file_lock,
+        min_ccr_identity=min_ccr_identity,
         gff_dir=gff_dir,
         blast_rlmh=blast_rlmh,
         rlmh_ref=rlmh_ref,
@@ -376,25 +412,94 @@ def run_pipeline(
     # --- Stage 4: Reports ---
     unified_report_file = os.path.join(outdir, "sccmec_unified_report.tsv")
     summary_report_file = os.path.join(outdir, "sccmec_summary.tsv")
+    hybrid_report_file = os.path.join(outdir, "hybrid_summary.tsv")
 
     # Load WGS typing results (genome-wide mec screen for extracted genomes)
     wgs_typing_rows = {}
     if os.path.isfile(wgs_typing_results_file):
         wgs_typing_rows = read_tsv(wgs_typing_results_file)
 
+    merged = None
     if os.path.isfile(extraction_report_file) and os.path.isfile(typing_results_file):
         extraction_rows = read_tsv(extraction_report_file)
         typing_rows = read_tsv(typing_results_file)
         typing_rows = normalise_typing_keys(typing_rows)
         merged = merge_reports(extraction_rows, typing_rows, wgs_typing_rows)
         write_unified_report(merged, unified_report_file)
-        write_summary_report(merged, summary_report_file)
     elif os.path.isfile(extraction_report_file):
-        # Typing may have failed for all genomes; still produce a report
         extraction_rows = read_tsv(extraction_report_file)
         merged = merge_reports(extraction_rows, {}, wgs_typing_rows)
         write_unified_report(merged, unified_report_file)
-        write_summary_report(merged, summary_report_file)
+
+    # --- Stage 4b: Batch hybrid comparison ---
+    # Collect extracted element FASTAs for batch BLAST
+    element_fastas = []
+    for result in results:
+        if result and result.get("sccmec_fasta"):
+            fasta = result["sccmec_fasta"]
+            if os.path.isfile(fasta):
+                element_fastas.append(fasta)
+
+    # Read ccr context from the unified report for hybrid classification
+    typing_context = {}
+    if os.path.isfile(unified_report_file):
+        from sccmecextractor.reference_comparison import read_typing_report
+        typing_context = read_typing_report(unified_report_file)
+
+    hybrid_lookup = {}  # element_id -> hybrid summary dict
+    if element_fastas:
+        print(
+            f"\nHybrid comparison: {len(element_fastas)} elements "
+            f"(batch BLAST)...",
+            end="", file=sys.stderr, flush=True,
+        )
+        hybrid_batch_results = hybrid_typer.type_batch(
+            element_fastas, typing_context=typing_context
+        )
+        print(" done", file=sys.stderr)
+
+        # Set up detail directory if requested
+        hybrid_detail_dir = None
+        if hybrid_detailed:
+            hybrid_detail_dir = os.path.join(outdir, "hybrid_detail")
+            os.makedirs(hybrid_detail_dir, exist_ok=True)
+
+        with open(hybrid_report_file, "w") as hf:
+            hf.write("\t".join(HYBRID_SUMMARY_HEADER) + "\n")
+            for summary_row, detail_rows in hybrid_batch_results:
+                hf.write(
+                    "\t".join(
+                        str(summary_row[c]) for c in HYBRID_SUMMARY_HEADER
+                    )
+                    + "\n"
+                )
+                # Build lookup for summary report
+                eid = summary_row.get("element_id", "")
+                hybrid_lookup[eid] = summary_row
+
+                # Write per-element detail file if requested
+                if hybrid_detail_dir and detail_rows:
+                    detail_path = os.path.join(
+                        hybrid_detail_dir,
+                        f"{eid}_hybrid_detail.tsv",
+                    )
+                    with open(detail_path, "w") as df:
+                        df.write(
+                            "\t".join(HYBRID_DETAIL_HEADER) + "\n"
+                        )
+                        for row in detail_rows:
+                            df.write(
+                                "\t".join(
+                                    str(row[c])
+                                    for c in HYBRID_DETAIL_HEADER
+                                )
+                                + "\n"
+                            )
+
+    # --- Write summary report (with hybrid info merged in) ---
+    if merged is not None:
+        write_summary_report(merged, summary_report_file,
+                             hybrid_results=hybrid_lookup)
 
     # Clean up intermediate files
     for tmp_file in (extraction_report_file, typing_results_file,
@@ -419,7 +524,8 @@ def run_pipeline(
         f"  Failed: {failed_count} ({failed_count/total*100:.1f}%)\n"
         f"  Typed (SCCmec): {typed_sccmec}, Typed (WGS): {typed_wgs}\n"
         f"Summary: {summary_report_file}\n"
-        f"Full report: {unified_report_file}",
+        f"Full report: {unified_report_file}\n"
+        f"Hybrid report: {hybrid_report_file}",
         file=sys.stderr,
     )
 
@@ -487,6 +593,23 @@ def main():
              "type will not be assigned. mec typing still uses the bundled "
              "reference.",
     )
+    parser.add_argument(
+        "--min-ccr-identity",
+        type=float,
+        default=None,
+        help="Minimum percent identity for novel ccr gene detection "
+             "(default: 70%%). IWG-SCC defines novel ccr genes down to "
+             "50%% identity; lower this value to detect highly divergent "
+             "ccr genes at the risk of false positives from non-ccr "
+             "serine recombinases.",
+    )
+    parser.add_argument(
+        "--hybrid-detailed",
+        action="store_true",
+        help="Write per-element hybrid detail files to hybrid_detail/ "
+             "subdirectory. Each file contains all reference type matches "
+             "with coverage, identity, and novel territory for that element.",
+    )
     args = parser.parse_args()
 
     # Resolve FASTA files from --fna or --fna-dir
@@ -551,6 +674,8 @@ def main():
         threads=args.threads,
         mec_ref=args.mec_ref,
         ccr_ref=args.ccr_ref,
+        min_ccr_identity=args.min_ccr_identity,
+        hybrid_detailed=args.hybrid_detailed,
     )
 
 

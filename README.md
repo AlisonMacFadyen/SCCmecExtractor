@@ -15,7 +15,7 @@ A Python toolkit for extracting and typing SCC*mec* and non-*mec* SCC elements f
 
 ## Overview
 
-SCC*mec*Extractor provides five CLI commands that work together to identify, extract and type SCC*mec* and non-*mec* SCC elements:
+SCC*mec*Extractor provides six CLI commands that work together to identify, extract and type SCC*mec* and non-*mec* SCC elements:
 
 | Command | Description |
 |---|---|
@@ -23,7 +23,21 @@ SCC*mec*Extractor provides five CLI commands that work together to identify, ext
 | `sccmec-locate-att` | Locate attachment (*att*) sites in genomic sequences |
 | `sccmec-extract` | Extract SCC elements bounded by *att* site pairs |
 | `sccmec-type` | Type SCC elements by *mec* complex class (A-E), *ccr* complex type (1-22) and SCC*mec* type (I-XV) |
+| `sccmec-hybrid` | Determine if extracted SCC element are hybrids of SCC*mec* types (I-XV) |
 | `sccmec-report` | Merge extraction and typing results into a unified report |
+
+Each CLI command produces specific outputs, that users can review:
+
+•	sccmec-locate-att: att_sites/ – a directory containing per-genome att site information
+•	sccmec-extract: sccmec/ – a directory with extracted element FASTA files
+•	sccmec-extract: ambiguous_att_sites.tsv – Detailed att site information for non-extracted genomes
+•	sccmec-extract: extraction_report.tsv – extraction report (standalone mode; merged into unified report when using the pipeline) containing comprehensive metadata associated with extraction success or failure
+•	sccmec-type: typing.tsv – if used standalone, produces a summary SCCmec typing output
+•	sccmec-hybrid: hybrid_summary.tsv – Reference comparison results for extracted elements, used to detect hybrid elements
+•	sccmec-hybrid: hybrid_detail/ – (optional with -d flag) Detailed reference comparison results for extracted elements, one per genome
+•	sccmec-report: sccmec_summary.tsv – Start here. One row per genome with key results.
+•	sccmec-report: sccmec_unified_report.tsv – Full diagnostic detail for all genomes (all columns).
+
 
 ### Key Capabilities
 

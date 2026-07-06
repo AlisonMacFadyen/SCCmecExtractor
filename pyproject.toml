@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sccmecextractor"
-version = "1.5.0"
+version = "1.6.0"
 description = "A Python toolkit for extracting SCCmec sequences from Staphylococcus whole genome sequences"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -47,6 +47,7 @@ sccmec-extract = "sccmecextractor.extract_SCCmec:main"
 sccmec-type = "sccmecextractor.sccmec_type_classification:main"
 sccmec-report = "sccmecextractor.report_sccmec:main"
 sccmec-pipeline = "sccmecextractor.pipeline:main"
+sccmec-hybrid = "sccmecextractor.reference_comparison:main"
 
 [project.urls]
 Homepage = "https://github.com/AlisonMacFadyen/SCCmecExtractor"
